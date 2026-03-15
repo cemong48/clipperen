@@ -1,0 +1,6 @@
+# CODEOWNERS — semua perubahan harus di-review oleh owner
+# Format: <pattern> <owner>
+# Reference: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Semua file — hanya owner yang bisa approve
+* @cemong48
