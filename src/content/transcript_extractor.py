@@ -660,15 +660,84 @@ def extract_audio(video_path, output_path=None):
     return None
 
 
+def _get_cf_worker_config():
+    """Get Cloudflare Worker URL and auth key for current channel."""
+    global _current_cookies_path
+    # Determine channel index from cookies path
+    idx = 1
+    if _current_cookies_path:
+        try:
+            idx = int(_current_cookies_path.split("cookies_")[1].split(".")[0])
+        except (IndexError, ValueError):
+            pass
+    
+    url = os.environ.get(f"CF_WORKER_URL_{idx}", "")
+    key = os.environ.get(f"CF_WORKER_AUTH_KEY_{idx}", "")
+    
+    if not url or not key:
+        # Try without index
+        url = os.environ.get("CF_WORKER_URL", "")
+        key = os.environ.get("CF_WORKER_AUTH_KEY", "")
+    
+    return url, key
+
+
+def extract_transcript_cf_worker(video_id):
+    """
+    Extract transcript via Cloudflare Worker proxy.
+    Most reliable method from CI — Cloudflare IPs are not blocked by YouTube.
+    
+    Returns transcript text string, or None if unavailable.
+    """
+    url, auth_key = _get_cf_worker_config()
+    if not url or not auth_key:
+        logger.info(f"CF Worker not configured for transcript extraction")
+        return None
+    
+    try:
+        resp = requests.post(
+            url,
+            json={"action": "transcript", "video_id": video_id},
+            headers={
+                "Content-Type": "application/json",
+                "X-Auth-Key": auth_key
+            },
+            timeout=30
+        )
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("success") and data.get("text"):
+                text = data["text"]
+                source = data.get("source", "cf_worker")
+                logger.info(f"Got transcript via CF Worker ({source}) for {video_id} ({len(text)} chars)")
+                return text
+        
+        # Log failure details
+        try:
+            error_data = resp.json()
+            errors = error_data.get("errors", [])
+            logger.info(f"CF Worker transcript failed for {video_id}: {errors}")
+        except Exception:
+            logger.info(f"CF Worker transcript failed for {video_id}: HTTP {resp.status_code}")
+        
+        return None
+        
+    except Exception as e:
+        logger.info(f"CF Worker error for {video_id}: {type(e).__name__}: {e}")
+        return None
+
+
 def get_transcript(video_url, video_path=None):
     """
     Main entry point: get transcript for a video.
     
     Priority order (optimized for GitHub Actions CI):
-    1. Direct innertube API (no library needed, works from most IPs)
-    2. youtube-transcript-api library (may be blocked from CI IPs)
-    3. yt-dlp subtitles (may be blocked from CI IPs)
-    4. Whisper local transcription (last resort, needs audio file)
+    1. Cloudflare Worker proxy (most reliable — CF IPs not blocked)
+    2. Direct innertube API (no library needed)
+    3. youtube-transcript-api library (may be blocked from CI IPs)
+    4. yt-dlp subtitles with cookies (bypasses bot detection)
+    5. Whisper local transcription (last resort, needs audio file)
     
     Returns:
         dict with 'text' (full text), 'source', and optionally 'segments'
@@ -679,28 +748,34 @@ def get_transcript(video_url, video_path=None):
         logger.error(f"Could not extract video ID from: {video_url}")
         return {"text": "", "source": "none", "segments": None}
     
-    # Method 1: Direct innertube API (most reliable in CI)
+    # Method 1: Cloudflare Worker proxy (most reliable in CI)
+    logger.info(f"Transcript [{video_id}]: trying CF Worker proxy...")
+    text = extract_transcript_cf_worker(video_id)
+    if text and len(text) >= 50:
+        return {"text": text, "source": "cf_worker", "segments": None}
+    
+    # Method 2: Direct innertube API
     logger.info(f"Transcript [{video_id}]: trying innertube (ANDROID/WEB_EMBEDDED/WEB)...")
     text = extract_transcript_innertube(video_id)
     if text and len(text) >= 50:
         return {"text": text, "source": "innertube", "segments": None}
     logger.info(f"Transcript [{video_id}]: innertube failed")
     
-    # Method 2: youtube-transcript-api library
+    # Method 3: youtube-transcript-api library
     logger.info(f"Transcript [{video_id}]: trying youtube-transcript-api...")
     text = extract_transcript_api(video_id)
     if text and len(text) >= 50:
         return {"text": text, "source": "youtube_transcript_api", "segments": None}
     logger.info(f"Transcript [{video_id}]: youtube-transcript-api failed")
     
-    # Method 3: yt-dlp subtitles
+    # Method 4: yt-dlp subtitles with cookies
     logger.info(f"Transcript [{video_id}]: trying yt-dlp...")
     text = extract_transcript_ytdlp(video_url)
     if text and len(text) >= 50:
         return {"text": text, "source": "youtube_subs", "segments": None}
     logger.info(f"Transcript [{video_id}]: yt-dlp failed")
     
-    # Method 4: Whisper (last resort — needs downloaded audio)
+    # Method 5: Whisper (last resort — needs downloaded audio)
     if video_path and os.path.exists(video_path):
         logger.info(f"Transcript [{video_id}]: trying Whisper on local audio...")
         audio_path = extract_audio(video_path)

@@ -78,6 +78,17 @@ jobs:
           GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
           GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
           # Optional
+          # Cloudflare Worker proxy (for transcript extraction)
+          CF_WORKER_URL_1: ${{ secrets.CF_WORKER_URL_1 }}
+          CF_WORKER_URL_2: ${{ secrets.CF_WORKER_URL_2 }}
+          CF_WORKER_URL_3: ${{ secrets.CF_WORKER_URL_3 }}
+          CF_WORKER_URL_4: ${{ secrets.CF_WORKER_URL_4 }}
+          CF_WORKER_URL_5: ${{ secrets.CF_WORKER_URL_5 }}
+          CF_WORKER_AUTH_KEY_1: ${{ secrets.CF_WORKER_AUTH_KEY_1 }}
+          CF_WORKER_AUTH_KEY_2: ${{ secrets.CF_WORKER_AUTH_KEY_2 }}
+          CF_WORKER_AUTH_KEY_3: ${{ secrets.CF_WORKER_AUTH_KEY_3 }}
+          CF_WORKER_AUTH_KEY_4: ${{ secrets.CF_WORKER_AUTH_KEY_4 }}
+          CF_WORKER_AUTH_KEY_5: ${{ secrets.CF_WORKER_AUTH_KEY_5 }}
           DRY_RUN: ${{ vars.DRY_RUN || 'false' }}
         run: python src/main.py
 
