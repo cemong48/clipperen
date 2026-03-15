@@ -343,6 +343,14 @@ def run_daily_pipeline():
     logger.info(f"DRY_RUN: {is_dry_run()}")
     logger.info("=" * 60)
     
+    # Log credential status for diagnostics
+    for idx in range(1, 6):
+        yt_key = "✅" if os.environ.get(f"YOUTUBE_API_KEY_{idx}") else "❌"
+        gemini = "✅" if os.environ.get(f"GEMINI_API_KEY_{idx}") else "❌"
+        client = "✅" if os.environ.get(f"YOUTUBE_CLIENT_SECRET_{idx}") else "❌"
+        token = "✅" if os.environ.get(f"YOUTUBE_REFRESH_TOKEN_{idx}") else "❌"
+        logger.info(f"Credentials #{idx}: YT_KEY={yt_key} GEMINI={gemini} CLIENT={client} TOKEN={token}")
+    
     settings = read_json(SETTINGS_PATH, default={})
     
     # Check seed verification

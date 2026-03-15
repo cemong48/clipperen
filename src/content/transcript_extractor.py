@@ -40,16 +40,49 @@ def _extract_video_id(video_url):
 
 def check_video_playability(video_id):
     """
-    Quick check if a video is actually playable via innertube.
-    Returns True if video is available and playable.
+    Quick check if a video is actually playable.
+    
+    Uses YouTube Data API v3 (videos.list) instead of innertube,
+    because innertube returns LOGIN_REQUIRED from CI environments.
+    Falls back to assuming playable if API check fails.
     """
+    # Method 1: YouTube Data API (works reliably from CI)
+    api_key = _get_api_key()
+    if api_key:
+        try:
+            url = "https://www.googleapis.com/youtube/v3/videos"
+            params = {
+                "part": "status",
+                "id": video_id,
+                "key": api_key
+            }
+            resp = requests.get(url, params=params, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("items", [])
+                if not items:
+                    logger.info(f"Video {video_id} not found via API — likely deleted/private")
+                    return False
+                status = items[0].get("status", {})
+                privacy = status.get("privacyStatus", "")
+                if privacy == "public":
+                    return True
+                logger.info(f"Video {video_id} not playable: privacyStatus={privacy}")
+                return False
+            else:
+                logger.debug(f"API playability check returned {resp.status_code} for {video_id}")
+        except Exception as e:
+            logger.debug(f"API playability check failed for {video_id}: {e}")
+    
+    # Method 2: Innertube with ANDROID client (less bot detection)
     try:
         url = "https://www.youtube.com/youtubei/v1/player"
         payload = {
             "context": {
                 "client": {
-                    "clientName": "WEB",
-                    "clientVersion": "2.20240101.00.00",
+                    "clientName": "ANDROID",
+                    "clientVersion": "19.09.37",
+                    "androidSdkVersion": 30,
                     "hl": "en",
                     "gl": "US"
                 }
@@ -58,11 +91,11 @@ def check_video_playability(video_id):
         }
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
         }
         resp = requests.post(url, json=payload, headers=headers, timeout=10)
         if resp.status_code != 200:
-            return False
+            return True  # Assume playable if check fails
         data = resp.json()
         status = data.get("playabilityStatus", {}).get("status", "")
         if status == "OK":
@@ -256,108 +289,161 @@ def extract_transcript_innertube(video_id):
     """
     Method 3: Direct innertube API call to get captions.
     
-    This bypasses the youtube-transcript-api library and makes a direct
-    request to YouTube's innertube API, which may work from different
-    IPs than the library's approach.
+    Uses ANDROID client context to avoid LOGIN_REQUIRED bot detection
+    that occurs with WEB client from CI environments (e.g., GitHub Actions).
     
     Returns transcript text string, or None if unavailable.
     """
-    try:
-        # Step 1: Get the video page to find caption tracks
-        innertube_url = "https://www.youtube.com/youtubei/v1/player"
-        payload = {
-            "context": {
-                "client": {
-                    "clientName": "WEB",
-                    "clientVersion": "2.20240101.00.00",
-                    "hl": "en",
-                    "gl": "US"
-                }
+    # Try multiple client contexts — ANDROID avoids bot detection in CI
+    client_configs = [
+        {
+            "name": "ANDROID",
+            "payload": {
+                "context": {
+                    "client": {
+                        "clientName": "ANDROID",
+                        "clientVersion": "19.09.37",
+                        "androidSdkVersion": 30,
+                        "hl": "en",
+                        "gl": "US"
+                    }
+                },
+                "videoId": video_id
             },
-            "videoId": video_id
+            "headers": {
+                "Content-Type": "application/json",
+                "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
+            }
+        },
+        {
+            "name": "WEB_EMBEDDED",
+            "payload": {
+                "context": {
+                    "client": {
+                        "clientName": "WEB_EMBEDDED_PLAYER",
+                        "clientVersion": "1.20240101.00.00",
+                        "hl": "en",
+                        "gl": "US"
+                    }
+                },
+                "videoId": video_id
+            },
+            "headers": {
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+        },
+        {
+            "name": "WEB",
+            "payload": {
+                "context": {
+                    "client": {
+                        "clientName": "WEB",
+                        "clientVersion": "2.20240101.00.00",
+                        "hl": "en",
+                        "gl": "US"
+                    }
+                },
+                "videoId": video_id
+            },
+            "headers": {
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
         }
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
-        resp = requests.post(innertube_url, json=payload, headers=headers, timeout=15)
-        if resp.status_code != 200:
-            logger.debug(f"Innertube player request failed ({resp.status_code}) for {video_id}")
-            return None
-        
-        data = resp.json()
-        
-        # Extract caption tracks
-        captions = data.get("captions", {}).get("playerCaptionsTracklistRenderer", {})
-        caption_tracks = captions.get("captionTracks", [])
-        
-        if not caption_tracks:
-            # Log the playability status for debugging
-            play_status = data.get("playabilityStatus", {}).get("status", "unknown")
-            play_reason = data.get("playabilityStatus", {}).get("reason", "")
-            logger.info(f"No caption tracks via innertube for {video_id} (playability: {play_status}, reason: {play_reason})")
-            return None
-        
-        # Find English track (prefer manual, then auto)
-        target_track = None
-        for track in caption_tracks:
-            lang = track.get("languageCode", "")
-            kind = track.get("kind", "")
-            if lang == "en" and kind != "asr":
-                target_track = track  # Manual English — best
-                break
-        
-        if not target_track:
+    ]
+    
+    innertube_url = "https://www.youtube.com/youtubei/v1/player"
+    
+    for config in client_configs:
+        try:
+            resp = requests.post(
+                innertube_url, 
+                json=config["payload"], 
+                headers=config["headers"], 
+                timeout=15
+            )
+            if resp.status_code != 200:
+                logger.debug(f"Innertube {config['name']} request failed ({resp.status_code}) for {video_id}")
+                continue
+            
+            data = resp.json()
+            
+            # Check playability status
+            play_status = data.get("playabilityStatus", {}).get("status", "")
+            if play_status != "OK":
+                play_reason = data.get("playabilityStatus", {}).get("reason", "")
+                logger.debug(f"Innertube {config['name']}: {play_status} — {play_reason} for {video_id}")
+                continue
+            
+            # Extract caption tracks
+            captions = data.get("captions", {}).get("playerCaptionsTracklistRenderer", {})
+            caption_tracks = captions.get("captionTracks", [])
+            
+            if not caption_tracks:
+                logger.debug(f"No caption tracks via innertube {config['name']} for {video_id}")
+                continue
+            
+            # Find English track (prefer manual, then auto)
+            target_track = None
             for track in caption_tracks:
                 lang = track.get("languageCode", "")
-                if lang == "en":
-                    target_track = track  # Auto-generated English
+                kind = track.get("kind", "")
+                if lang == "en" and kind != "asr":
+                    target_track = track  # Manual English — best
                     break
+            
+            if not target_track:
+                for track in caption_tracks:
+                    lang = track.get("languageCode", "")
+                    if lang == "en":
+                        target_track = track  # Auto-generated English
+                        break
+            
+            if not target_track:
+                # Fall back to any track
+                target_track = caption_tracks[0]
+                logger.info(f"Using {target_track.get('languageCode', '?')} captions for {video_id}")
+            
+            # Download the caption track
+            base_url = target_track.get("baseUrl", "")
+            if not base_url:
+                continue
+            
+            # Request format as JSON3
+            if "?" in base_url:
+                caption_url = f"{base_url}&fmt=json3"
+            else:
+                caption_url = f"{base_url}?fmt=json3"
+            
+            cap_resp = requests.get(caption_url, headers=config["headers"], timeout=15)
+            if cap_resp.status_code != 200:
+                logger.debug(f"Caption download failed ({cap_resp.status_code}) for {video_id}")
+                continue
+            
+            # Parse JSON3 format
+            cap_data = cap_resp.json()
+            segments = []
+            for event in cap_data.get("events", []):
+                text_parts = []
+                for seg in event.get("segs", []):
+                    text = seg.get("utf8", "").strip()
+                    if text and text != "\n":
+                        text_parts.append(text)
+                if text_parts:
+                    segments.append(" ".join(text_parts))
+            
+            text = " ".join(segments)
+            if text and len(text) >= 50:
+                logger.info(f"Got transcript via innertube ({config['name']}) for {video_id} ({len(text)} chars)")
+                return text
         
-        if not target_track:
-            # Fall back to any track
-            target_track = caption_tracks[0]
-            logger.info(f"Using {target_track.get('languageCode', '?')} captions for {video_id}")
-        
-        # Step 2: Download the caption track
-        base_url = target_track.get("baseUrl", "")
-        if not base_url:
-            return None
-        
-        # Request format as JSON3
-        if "?" in base_url:
-            caption_url = f"{base_url}&fmt=json3"
-        else:
-            caption_url = f"{base_url}?fmt=json3"
-        
-        cap_resp = requests.get(caption_url, headers=headers, timeout=15)
-        if cap_resp.status_code != 200:
-            logger.debug(f"Caption download failed ({cap_resp.status_code}) for {video_id}")
-            return None
-        
-        # Parse JSON3 format
-        cap_data = cap_resp.json()
-        segments = []
-        for event in cap_data.get("events", []):
-            text_parts = []
-            for seg in event.get("segs", []):
-                text = seg.get("utf8", "").strip()
-                if text and text != "\n":
-                    text_parts.append(text)
-            if text_parts:
-                segments.append(" ".join(text_parts))
-        
-        text = " ".join(segments)
-        if text and len(text) >= 50:
-            logger.info(f"Got transcript via innertube for {video_id} ({len(text)} chars)")
-            return text
-        
-        return None
-        
-    except Exception as e:
-        logger.debug(f"Innertube transcript failed for {video_id}: {type(e).__name__}: {e}")
-        return None
+        except Exception as e:
+            logger.debug(f"Innertube {config['name']} failed for {video_id}: {type(e).__name__}: {e}")
+            continue
+    
+    logger.debug(f"All innertube clients failed for {video_id}")
+    return None
 
 
 def extract_transcript_ytdlp(video_url, output_name="transcript"):

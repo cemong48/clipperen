@@ -6,6 +6,7 @@ import os
 import json
 import time
 import logging
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 import requests
@@ -172,7 +173,7 @@ def discover_new_channels(whitelist_path="config/whitelist.json",
 def get_latest_videos(channel_id, max_results=10, days_back=7, channel_name=None):
     """
     Get latest videos from a channel (last N days).
-    Used by the content pipeline to find clips.
+    Uses YouTube Data API with automatic RSS fallback on 403.
     """
     api_key = _get_api_key_for_context(channel_name)
     published_after = (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00Z")
@@ -190,10 +191,94 @@ def get_latest_videos(channel_id, max_results=10, days_back=7, channel_name=None
     
     try:
         resp = requests.get(url, params=params, timeout=15)
+        
+        if resp.status_code == 403:
+            # Log the specific reason from the API response
+            try:
+                error_data = resp.json()
+                error_reason = error_data.get("error", {}).get("errors", [{}])[0].get("reason", "unknown")
+                error_message = error_data.get("error", {}).get("message", "unknown")
+                logger.warning(
+                    f"YouTube API 403 for {channel_id} (key index for {channel_name}): "
+                    f"reason={error_reason}, message={error_message}. "
+                    f"Falling back to RSS."
+                )
+            except Exception:
+                logger.warning(f"YouTube API 403 for {channel_id}. Falling back to RSS.")
+            
+            # Fallback to RSS
+            return get_latest_videos_rss(channel_id, max_results=max_results, days_back=days_back)
+        
         resp.raise_for_status()
         return resp.json().get("items", [])
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Failed to get latest videos for {channel_id}: {e}")
+        # Try RSS fallback for any HTTP error
+        return get_latest_videos_rss(channel_id, max_results=max_results, days_back=days_back)
     except Exception as e:
         logger.error(f"Failed to get latest videos for {channel_id}: {e}")
+        return get_latest_videos_rss(channel_id, max_results=max_results, days_back=days_back)
+
+
+def get_latest_videos_rss(channel_id, max_results=10, days_back=7):
+    """
+    Fallback: Get latest videos via YouTube's public RSS feed.
+    No API key required. Returns items in the same format as the API.
+    """
+    rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    
+    try:
+        resp = requests.get(rss_url, timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; RSS reader)"
+        })
+        if resp.status_code != 200:
+            logger.debug(f"RSS feed failed ({resp.status_code}) for {channel_id}")
+            return []
+        
+        # Parse Atom XML
+        root = ET.fromstring(resp.content)
+        ns = {"atom": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
+        
+        cutoff = datetime.utcnow() - timedelta(days=days_back)
+        items = []
+        
+        for entry in root.findall("atom:entry", ns):
+            if len(items) >= max_results:
+                break
+            
+            video_id = entry.find("yt:videoId", ns)
+            title = entry.find("atom:title", ns)
+            published = entry.find("atom:published", ns)
+            
+            if video_id is None:
+                continue
+            
+            vid = video_id.text
+            
+            # Filter by date
+            if published is not None:
+                try:
+                    pub_date = datetime.strptime(published.text[:19], "%Y-%m-%dT%H:%M:%S")
+                    if pub_date < cutoff:
+                        continue
+                except Exception:
+                    pass
+            
+            # Format to match YouTube API response structure
+            items.append({
+                "id": {"videoId": vid},
+                "snippet": {
+                    "title": title.text if title is not None else "",
+                    "channelId": channel_id,
+                    "publishedAt": published.text if published is not None else ""
+                }
+            })
+        
+        logger.info(f"RSS fallback: found {len(items)} video(s) for {channel_id}")
+        return items
+        
+    except Exception as e:
+        logger.error(f"RSS fallback failed for {channel_id}: {e}")
         return []
 
 
@@ -210,6 +295,16 @@ def get_video_details(video_id, channel_name=None):
     
     try:
         resp = requests.get(url, params=params, timeout=10)
+        
+        if resp.status_code == 403:
+            try:
+                error_data = resp.json()
+                error_reason = error_data.get("error", {}).get("errors", [{}])[0].get("reason", "unknown")
+                logger.error(f"YouTube API 403 for video {video_id}: reason={error_reason}")
+            except Exception:
+                logger.error(f"YouTube API 403 for video {video_id}")
+            return None
+        
         resp.raise_for_status()
         items = resp.json().get("items", [])
         return items[0] if items else None
