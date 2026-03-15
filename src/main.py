@@ -425,7 +425,8 @@ def run_daily_pipeline():
                 logger.error(f"Manual video failed: {e}")
                 total_failed += 1
         
-        # Discover auto candidates — only scan whitelist channels for THIS target channel
+        # Discover auto candidates — ROTATION: scan only 1 whitelist channel per day
+        # to preserve YouTube API quota. Rotates daily through assigned sources.
         active_channels = get_active_channels(WHITELIST_PATH)
         
         # Filter to only channels assigned to this target channel
@@ -433,10 +434,25 @@ def run_daily_pipeline():
             ch for ch in active_channels
             if ch.get("target_channel") == channel_name
         ]
-        logger.info(f"Scanning {len(my_channels)} source(s) for {channel_name}")
+        
+        # Daily rotation: pick 1 source channel based on day of year
+        if my_channels:
+            day_of_year = datetime.utcnow().timetuple().tm_yday
+            rotation_index = day_of_year % len(my_channels)
+            selected_channel = my_channels[rotation_index]
+            
+            logger.info(
+                f"Rotation: scanning source {rotation_index + 1}/{len(my_channels)} "
+                f"for {channel_name} — {selected_channel.get('channel_name', '?')} "
+                f"(day {day_of_year} mod {len(my_channels)} = {rotation_index})"
+            )
+            scan_channels = [selected_channel]
+        else:
+            scan_channels = []
+            logger.warning(f"No whitelist sources assigned to {channel_name}")
         
         all_candidates = []
-        for wl_channel in my_channels:
+        for wl_channel in scan_channels:
             candidates = discover_candidates_for_channel(wl_channel, settings, target_channel=channel_name)
             all_candidates.extend(candidates)
         
