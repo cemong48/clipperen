@@ -38,6 +38,43 @@ def _extract_video_id(video_url):
     return None
 
 
+def check_video_playability(video_id):
+    """
+    Quick check if a video is actually playable via innertube.
+    Returns True if video is available and playable.
+    """
+    try:
+        url = "https://www.youtube.com/youtubei/v1/player"
+        payload = {
+            "context": {
+                "client": {
+                    "clientName": "WEB",
+                    "clientVersion": "2.20240101.00.00",
+                    "hl": "en",
+                    "gl": "US"
+                }
+            },
+            "videoId": video_id
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        resp = requests.post(url, json=payload, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return False
+        data = resp.json()
+        status = data.get("playabilityStatus", {}).get("status", "")
+        if status == "OK":
+            return True
+        reason = data.get("playabilityStatus", {}).get("reason", "unknown")
+        logger.info(f"Video {video_id} not playable: {status} — {reason}")
+        return False
+    except Exception as e:
+        logger.debug(f"Playability check failed for {video_id}: {e}")
+        return True  # Assume playable if check fails
+
+
 def _get_api_key():
     """Get any available YouTube API key."""
     for i in range(1, 6):
@@ -256,7 +293,10 @@ def extract_transcript_innertube(video_id):
         caption_tracks = captions.get("captionTracks", [])
         
         if not caption_tracks:
-            logger.info(f"No caption tracks found via innertube for {video_id}")
+            # Log the playability status for debugging
+            play_status = data.get("playabilityStatus", {}).get("status", "unknown")
+            play_reason = data.get("playabilityStatus", {}).get("reason", "")
+            logger.info(f"No caption tracks via innertube for {video_id} (playability: {play_status}, reason: {play_reason})")
             return None
         
         # Find English track (prefer manual, then auto)

@@ -21,7 +21,7 @@ from src.discovery.whitelist_manager import get_active_channels, get_whitelist_e
 from src.discovery.channel_scanner import get_latest_videos, get_video_details
 
 from src.content.video_fetcher import download_segment, cleanup_temp
-from src.content.transcript_extractor import get_transcript
+from src.content.transcript_extractor import get_transcript, check_video_playability
 from src.content.clip_detector import detect_clips_for_video
 from src.content.format_classifier import classify_source_format, parse_iso_duration
 
@@ -149,6 +149,11 @@ def discover_candidates_for_channel(channel_entry, settings, target_channel=None
             continue
         
         video_url = f"https://www.youtube.com/watch?v={video_id}"
+        
+        # Check playability BEFORE trying transcript (skip unavailable videos early)
+        if not check_video_playability(video_id):
+            logger.info(f"  Skipping {video_id} — video not playable/unavailable")
+            continue
         
         # Get transcript
         transcript_data = get_transcript(video_url)
