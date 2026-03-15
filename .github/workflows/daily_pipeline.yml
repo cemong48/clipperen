@@ -44,6 +44,8 @@ jobs:
               echo "Cookies #${i}: NOT SET"
             fi
           done
+          echo "Converting cookies to Netscape format..."
+          python scripts/convert_cookies.py
         env:
           YOUTUBE_COOKIES_1: ${{ secrets.YOUTUBE_COOKIES_1 }}
           YOUTUBE_COOKIES_2: ${{ secrets.YOUTUBE_COOKIES_2 }}
