@@ -1,5 +1,6 @@
 # src/discovery/channel_scanner.py
 # YouTube API channel search + expansion beyond 25 seeds
+# Uses per-channel API keys to avoid rate limits
 
 import os
 import json
@@ -10,10 +11,10 @@ from datetime import datetime, timedelta
 import requests
 
 from ..utils.file_lock import read_json, write_json
+from ..utils.channel_credentials import get_api_key, CHANNEL_INDEX
 
 logger = logging.getLogger("clipper.discovery.scanner")
 
-YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 
 # Niche keywords for discovering new channels via video search
@@ -41,8 +42,28 @@ NICHE_KEYWORDS = {
 }
 
 
-def youtube_search_videos(keyword, max_results=10, published_after=None):
+def _get_api_key_for_context(channel_name=None):
+    """Get an API key, preferring the channel-specific one."""
+    if channel_name:
+        try:
+            return get_api_key(channel_name)
+        except ValueError:
+            pass
+    
+    # Fallback: try any available key (1 through 5)
+    for i in range(1, 6):
+        key = os.environ.get(f"YOUTUBE_API_KEY_{i}", "")
+        if key:
+            return key
+    
+    # Last resort
+    return os.environ.get("YOUTUBE_API_KEY", "")
+
+
+def youtube_search_videos(keyword, max_results=10, published_after=None, channel_name=None):
     """Search YouTube for videos matching a keyword."""
+    api_key = _get_api_key_for_context(channel_name)
+    
     url = f"{YOUTUBE_API_BASE}/search"
     params = {
         "part": "snippet",
@@ -50,7 +71,7 @@ def youtube_search_videos(keyword, max_results=10, published_after=None):
         "type": "video",
         "order": "viewCount",
         "maxResults": max_results,
-        "key": YOUTUBE_API_KEY
+        "key": api_key
     }
     if published_after:
         params["publishedAfter"] = published_after
@@ -64,13 +85,15 @@ def youtube_search_videos(keyword, max_results=10, published_after=None):
         return []
 
 
-def get_channel_info(channel_id):
+def get_channel_info(channel_id, channel_name=None):
     """Get channel snippet info via YouTube Data API."""
+    api_key = _get_api_key_for_context(channel_name)
+    
     url = f"{YOUTUBE_API_BASE}/channels"
     params = {
         "part": "snippet,statistics",
         "id": channel_id,
-        "key": YOUTUBE_API_KEY
+        "key": api_key
     }
     try:
         resp = requests.get(url, params=params, timeout=10)
@@ -146,11 +169,12 @@ def discover_new_channels(whitelist_path="config/whitelist.json",
     return discovered
 
 
-def get_latest_videos(channel_id, max_results=10, days_back=7):
+def get_latest_videos(channel_id, max_results=10, days_back=7, channel_name=None):
     """
     Get latest videos from a channel (last N days).
     Used by the content pipeline to find clips.
     """
+    api_key = _get_api_key_for_context(channel_name)
     published_after = (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00Z")
     
     url = f"{YOUTUBE_API_BASE}/search"
@@ -161,7 +185,7 @@ def get_latest_videos(channel_id, max_results=10, days_back=7):
         "order": "date",
         "maxResults": max_results,
         "publishedAfter": published_after,
-        "key": YOUTUBE_API_KEY
+        "key": api_key
     }
     
     try:
@@ -173,13 +197,15 @@ def get_latest_videos(channel_id, max_results=10, days_back=7):
         return []
 
 
-def get_video_details(video_id):
+def get_video_details(video_id, channel_name=None):
     """Get detailed info about a specific video."""
+    api_key = _get_api_key_for_context(channel_name)
+    
     url = f"{YOUTUBE_API_BASE}/videos"
     params = {
         "part": "snippet,contentDetails,status",
         "id": video_id,
-        "key": YOUTUBE_API_KEY
+        "key": api_key
     }
     
     try:
@@ -191,15 +217,3 @@ def get_video_details(video_id):
         logger.error(f"Failed to get video details for {video_id}: {e}")
         return None
 
-
-if __name__ == "__main__":
-    # Standalone weekly discovery run
-    from ..discovery.permission_detector import scan_channel_permissions
-    from ..discovery.whitelist_manager import add_to_whitelist
-    
-    new_channels = discover_new_channels()
-    
-    for ch in new_channels:
-        perm = scan_channel_permissions(ch["channel_id"], ch["channel_name"])
-        if perm["confidence"] >= 70:
-            add_to_whitelist(ch, perm)
