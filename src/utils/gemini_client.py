@@ -1,5 +1,6 @@
 # src/utils/gemini_client.py
-# Gemini API wrapper with retry logic, rate limit handling, and per-channel keys
+# Gemini API wrapper using NEW google-genai SDK
+# Per-channel API keys with retry logic and rate limit handling
 
 import os
 import json
@@ -7,14 +8,14 @@ import time
 import logging
 import re
 
-import google.generativeai as genai
+from google import genai
 
 logger = logging.getLogger(__name__)
 
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash"
 
-# Cache model instances per API key to avoid re-init
-_model_cache = {}
+# Cache client instances per channel (each has its own API key)
+_client_cache = {}
 
 # Track which channel is currently active (for modules that don't pass channel_name)
 _active_channel = "psyched"
@@ -26,56 +27,58 @@ def set_active_channel(channel_name):
     _active_channel = channel_name
 
 
-def get_model(channel_name=None):
-    """Get or create model instance for a specific channel's API key."""
-    global _model_cache
-    
+def get_client(channel_name=None):
+    """Get or create Gemini client for a specific channel's API key."""
+    global _client_cache
+
     ch = channel_name or _active_channel
-    
-    if ch in _model_cache:
-        return _model_cache[ch]
-    
+
+    if ch in _client_cache:
+        return _client_cache[ch]
+
     # Get per-channel Gemini key
     try:
         from .channel_credentials import get_gemini_api_key
         api_key = get_gemini_api_key(ch)
     except (ImportError, ValueError):
         api_key = os.environ.get("GEMINI_API_KEY", "")
-    
+
     if not api_key:
         raise ValueError(
             f"GEMINI_API_KEY not set for channel {ch}. "
             f"Set GEMINI_API_KEY or GEMINI_API_KEY_X in environment."
         )
-    
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(GEMINI_MODEL)
-    _model_cache[ch] = model
-    logger.info(f"Gemini model initialized for channel: {ch}")
-    return model
+
+    client = genai.Client(api_key=api_key)
+    _client_cache[ch] = client
+    logger.info(f"Gemini client initialized for channel: {ch}")
+    return client
 
 
 def call_gemini_with_retry(prompt, max_retries=3, parse_json=True, channel_name=None):
     """
     Call Gemini API with exponential backoff retry logic.
-    
+
     Args:
         prompt: The text prompt to send to Gemini.
         max_retries: Maximum number of retries (default 3).
         parse_json: If True, attempt to parse response as JSON.
         channel_name: Optional channel name to use specific API key.
-    
+
     Returns:
         Parsed JSON dict if parse_json=True, else raw text string.
-    
+
     Raises:
         Exception if all retries fail.
     """
-    model = get_model(channel_name)
+    client = get_client(channel_name)
 
     for attempt in range(max_retries):
         try:
-            response = model.generate_content(prompt)
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt
+            )
             text = response.text.strip()
 
             if parse_json:
