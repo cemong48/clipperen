@@ -329,13 +329,40 @@ def get_channel_uploads(channel_id, max_pages=3, channel_name=None):
     """
     api_key = _get_api_key_for_context(channel_name)
     
-    # Convert channel ID to uploads playlist ID
-    # UC... → UU... (uploads playlist convention)
-    if channel_id.startswith("UC"):
-        uploads_playlist_id = "UU" + channel_id[2:]
-    else:
-        logger.warning(f"Channel ID {channel_id} doesn't start with UC, trying direct")
-        uploads_playlist_id = channel_id
+    # Step 1: Get the actual uploads playlist ID via channels API (1 quota)
+    uploads_playlist_id = None
+    try:
+        ch_url = f"{YOUTUBE_API_BASE}/channels"
+        ch_params = {
+            "part": "contentDetails",
+            "id": channel_id,
+            "key": api_key
+        }
+        ch_resp = requests.get(ch_url, params=ch_params, timeout=10)
+        if ch_resp.status_code == 200:
+            ch_items = ch_resp.json().get("items", [])
+            if ch_items:
+                uploads_playlist_id = (
+                    ch_items[0]
+                    .get("contentDetails", {})
+                    .get("relatedPlaylists", {})
+                    .get("uploads", "")
+                )
+                if uploads_playlist_id:
+                    logger.info(f"Uploads playlist for {channel_id}: {uploads_playlist_id}")
+        elif ch_resp.status_code == 403:
+            logger.warning(f"Channels API 403 for {channel_id}, trying UC→UU fallback")
+    except Exception as e:
+        logger.warning(f"Channels API failed for {channel_id}: {e}")
+    
+    # Fallback: UC → UU conversion
+    if not uploads_playlist_id:
+        if channel_id.startswith("UC"):
+            uploads_playlist_id = "UU" + channel_id[2:]
+            logger.info(f"Using UC→UU fallback: {uploads_playlist_id}")
+        else:
+            logger.warning(f"Cannot determine uploads playlist for {channel_id}")
+            return []
     
     all_items = []
     next_page_token = None
@@ -361,6 +388,10 @@ def get_channel_uploads(channel_id, max_pages=3, channel_name=None):
                     logger.warning(f"YouTube API 403 for uploads playlist: {error_reason}")
                 except Exception:
                     logger.warning(f"YouTube API 403 for uploads playlist")
+                break
+            
+            if resp.status_code == 404:
+                logger.warning(f"Uploads playlist not found: {uploads_playlist_id}")
                 break
             
             resp.raise_for_status()
