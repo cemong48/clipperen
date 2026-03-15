@@ -691,8 +691,10 @@ def extract_transcript_cf_worker(video_id):
     """
     url, auth_key = _get_cf_worker_config()
     if not url or not auth_key:
-        logger.info(f"CF Worker not configured for transcript extraction")
+        logger.info(f"CF Worker not configured (missing URL or AUTH_KEY)")
         return None
+    
+    logger.info(f"CF Worker: calling proxy for {video_id}...")
     
     try:
         resp = requests.post(
@@ -705,26 +707,50 @@ def extract_transcript_cf_worker(video_id):
             timeout=30
         )
         
+        logger.info(f"CF Worker: HTTP {resp.status_code} for {video_id}")
+        
         if resp.status_code == 200:
             data = resp.json()
             if data.get("success") and data.get("text"):
                 text = data["text"]
                 source = data.get("source", "cf_worker")
-                logger.info(f"Got transcript via CF Worker ({source}) for {video_id} ({len(text)} chars)")
+                logger.info(f"CF Worker SUCCESS ({source}) for {video_id} ({len(text)} chars)")
                 return text
+            else:
+                # 200 but no success — log the errors (these are innertube client errors, safe to log)
+                errors = data.get("errors", [])
+                for err in errors[:5]:
+                    logger.info(f"CF Worker inner: {err}")
+                return None
         
-        # Log failure details
-        try:
-            error_data = resp.json()
-            errors = error_data.get("errors", [])
-            logger.info(f"CF Worker transcript failed for {video_id}: {errors}")
-        except Exception:
-            logger.info(f"CF Worker transcript failed for {video_id}: HTTP {resp.status_code}")
+        elif resp.status_code == 401:
+            logger.info(f"CF Worker: AUTH FAILED (401) — check CF_WORKER_AUTH_KEY matches Worker env AUTH_KEY")
+            return None
         
+        elif resp.status_code == 404:
+            # No transcript found by worker
+            try:
+                data = resp.json()
+                errors = data.get("errors", [])
+                for err in errors[:5]:
+                    logger.info(f"CF Worker inner: {err}")
+            except Exception:
+                logger.info(f"CF Worker: no transcript found (404)")
+            return None
+        
+        else:
+            logger.info(f"CF Worker: unexpected HTTP {resp.status_code}")
+            return None
+        
+    except requests.exceptions.ConnectionError:
+        logger.info(f"CF Worker: CONNECTION FAILED — check CF_WORKER_URL is correct")
         return None
-        
+    except requests.exceptions.Timeout:
+        logger.info(f"CF Worker: TIMEOUT (30s) for {video_id}")
+        return None
     except Exception as e:
-        logger.info(f"CF Worker error for {video_id}: {type(e).__name__}: {e}")
+        # Sanitize: don't log the full exception (may contain URL)
+        logger.info(f"CF Worker: {type(e).__name__} for {video_id}")
         return None
 
 
