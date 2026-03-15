@@ -8,10 +8,53 @@ import logging
 import json
 import re
 import requests
+from http.cookiejar import MozillaCookieJar
 
 logger = logging.getLogger("clipper.content.transcript")
 
 TEMP_DIR = "temp"
+
+# Global cookies path — set by pipeline based on current channel index
+_current_cookies_path = None
+
+
+def set_cookies_for_channel(channel_index):
+    """Set the cookies file path for the current channel (1-5)."""
+    global _current_cookies_path
+    path = os.path.join(TEMP_DIR, f"cookies_{channel_index}.txt")
+    if os.path.exists(path):
+        _current_cookies_path = path
+        logger.info(f"Cookies set for channel #{channel_index}: {path}")
+    else:
+        _current_cookies_path = None
+        logger.info(f"No cookies file for channel #{channel_index}")
+
+
+def _get_cookies_path():
+    """Get current cookies path, or try any available."""
+    global _current_cookies_path
+    if _current_cookies_path and os.path.exists(_current_cookies_path):
+        return _current_cookies_path
+    # Try any available cookies file
+    for i in range(1, 6):
+        path = os.path.join(TEMP_DIR, f"cookies_{i}.txt")
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def _load_cookies_for_requests():
+    """Load cookies from Netscape cookies.txt file for use with requests library."""
+    cookies_path = _get_cookies_path()
+    if not cookies_path:
+        return {}
+    try:
+        jar = MozillaCookieJar(cookies_path)
+        jar.load(ignore_discard=True, ignore_expires=True)
+        return {cookie.name: cookie.value for cookie in jar if '.youtube.com' in cookie.domain}
+    except Exception as e:
+        logger.debug(f"Could not load cookies from {cookies_path}: {e}")
+        return {}
 
 
 def _extract_video_id(video_url):
@@ -449,12 +492,14 @@ def extract_transcript_innertube(video_id):
 def extract_transcript_ytdlp(video_url, output_name="transcript"):
     """
     Method 4: Pull subtitles via yt-dlp.
-    Last resort for external subtitle download.
+    Uses cookies file if available to bypass bot detection.
     
     Returns transcript text string, or None if unavailable.
     """
     os.makedirs(TEMP_DIR, exist_ok=True)
     subtitle_path = os.path.join(TEMP_DIR, output_name)
+    
+    cookies_path = _get_cookies_path()
     
     cmd = [
         "yt-dlp",
@@ -465,13 +510,22 @@ def extract_transcript_ytdlp(video_url, output_name="transcript"):
         "--skip-download",
         "--no-check-certificates",
         "--no-warnings",
-        "--quiet",
+        "--no-playlist",
         "-o", subtitle_path,
         video_url
     ]
     
+    # Add cookies if available
+    if cookies_path:
+        cmd.insert(-1, "--cookies")
+        cmd.insert(-1, cookies_path)
+        logger.info(f"yt-dlp using cookies: {cookies_path}")
+    
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        if result.returncode != 0 and result.stderr:
+            logger.info(f"yt-dlp stderr: {result.stderr[:200]}")
         
         # Look for generated subtitle files
         for ext in [".en.json3", ".en.vtt", ".en.srt"]:
@@ -482,16 +536,18 @@ def extract_transcript_ytdlp(video_url, output_name="transcript"):
                     os.remove(sub_file)
                 except Exception:
                     pass
-                return text
+                if text and len(text) >= 50:
+                    logger.info(f"Got transcript via yt-dlp for {video_url} ({len(text)} chars)")
+                    return text
         
-        logger.debug(f"No subtitles found via yt-dlp for {video_url}")
+        logger.info(f"No subtitles found via yt-dlp for {video_url}")
         return None
         
     except subprocess.TimeoutExpired:
         logger.warning(f"yt-dlp timed out for {video_url}")
         return None
     except FileNotFoundError:
-        logger.debug("yt-dlp not found")
+        logger.info("yt-dlp not found")
         return None
     except Exception as e:
         logger.error(f"yt-dlp failed: {e}")

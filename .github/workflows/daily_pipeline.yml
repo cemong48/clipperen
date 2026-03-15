@@ -31,6 +31,26 @@ jobs:
             echo "WARNING: Seeds not verified. Run scripts/verify_seeds.py first."
           fi
 
+      - name: Setup cookies
+        run: |
+          mkdir -p temp
+          for i in 1 2 3 4 5; do
+            VAR_NAME="YOUTUBE_COOKIES_${i}"
+            COOKIE_VAL="${!VAR_NAME}"
+            if [ -n "$COOKIE_VAL" ]; then
+              echo "$COOKIE_VAL" > "temp/cookies_${i}.txt"
+              echo "Cookies #${i}: written ($(wc -c < temp/cookies_${i}.txt) bytes)"
+            else
+              echo "Cookies #${i}: NOT SET"
+            fi
+          done
+        env:
+          YOUTUBE_COOKIES_1: ${{ secrets.YOUTUBE_COOKIES_1 }}
+          YOUTUBE_COOKIES_2: ${{ secrets.YOUTUBE_COOKIES_2 }}
+          YOUTUBE_COOKIES_3: ${{ secrets.YOUTUBE_COOKIES_3 }}
+          YOUTUBE_COOKIES_4: ${{ secrets.YOUTUBE_COOKIES_4 }}
+          YOUTUBE_COOKIES_5: ${{ secrets.YOUTUBE_COOKIES_5 }}
+
       - name: Run pipeline
         env:
           # Per-channel YouTube credentials (1=psyched, 2=minted, 3=vitals, 4=wired, 5=sage)
@@ -58,6 +78,10 @@ jobs:
           # Optional
           DRY_RUN: ${{ vars.DRY_RUN || 'false' }}
         run: python src/main.py
+
+      - name: Cleanup cookies
+        if: always()
+        run: rm -f temp/cookies_*.txt
 
       - name: Commit database updates
         run: |

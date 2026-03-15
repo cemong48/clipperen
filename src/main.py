@@ -21,7 +21,7 @@ from src.discovery.whitelist_manager import get_active_channels, get_whitelist_e
 from src.discovery.channel_scanner import get_latest_videos, get_video_details
 
 from src.content.video_fetcher import download_segment, cleanup_temp
-from src.content.transcript_extractor import get_transcript, check_video_playability
+from src.content.transcript_extractor import get_transcript, check_video_playability, set_cookies_for_channel
 from src.content.clip_detector import detect_clips_for_video
 from src.content.format_classifier import classify_source_format, parse_iso_duration
 
@@ -381,6 +381,11 @@ def run_daily_pipeline():
         
         # Switch Gemini API key to this channel's key
         set_active_channel(channel_name)
+        
+        # Set cookies for this channel (for transcript extraction in CI)
+        from src.utils.channel_credentials import CHANNEL_INDEX
+        channel_idx = CHANNEL_INDEX.get(channel_name, 1)
+        set_cookies_for_channel(channel_idx)
         
         slots = all_slots.get(channel_name, {})
         shorts_needed = slots.get("auto_shorts_needed", 2)
