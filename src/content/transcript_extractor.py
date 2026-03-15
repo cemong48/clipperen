@@ -364,7 +364,7 @@ def extract_transcript_innertube(video_id):
                 timeout=15
             )
             if resp.status_code != 200:
-                logger.debug(f"Innertube {config['name']} request failed ({resp.status_code}) for {video_id}")
+                logger.info(f"Innertube {config['name']} request failed ({resp.status_code}) for {video_id}")
                 continue
             
             data = resp.json()
@@ -373,7 +373,7 @@ def extract_transcript_innertube(video_id):
             play_status = data.get("playabilityStatus", {}).get("status", "")
             if play_status != "OK":
                 play_reason = data.get("playabilityStatus", {}).get("reason", "")
-                logger.debug(f"Innertube {config['name']}: {play_status} — {play_reason} for {video_id}")
+                logger.info(f"Innertube {config['name']}: {play_status} — {play_reason} for {video_id}")
                 continue
             
             # Extract caption tracks
@@ -381,7 +381,7 @@ def extract_transcript_innertube(video_id):
             caption_tracks = captions.get("captionTracks", [])
             
             if not caption_tracks:
-                logger.debug(f"No caption tracks via innertube {config['name']} for {video_id}")
+                logger.info(f"No caption tracks via innertube {config['name']} for {video_id}")
                 continue
             
             # Find English track (prefer manual, then auto)
@@ -439,7 +439,7 @@ def extract_transcript_innertube(video_id):
                 return text
         
         except Exception as e:
-            logger.debug(f"Innertube {config['name']} failed for {video_id}: {type(e).__name__}: {e}")
+            logger.info(f"Innertube {config['name']} error for {video_id}: {type(e).__name__}: {e}")
             continue
     
     logger.debug(f"All innertube clients failed for {video_id}")
@@ -624,22 +624,29 @@ def get_transcript(video_url, video_path=None):
         return {"text": "", "source": "none", "segments": None}
     
     # Method 1: Direct innertube API (most reliable in CI)
+    logger.info(f"Transcript [{video_id}]: trying innertube (ANDROID/WEB_EMBEDDED/WEB)...")
     text = extract_transcript_innertube(video_id)
     if text and len(text) >= 50:
         return {"text": text, "source": "innertube", "segments": None}
+    logger.info(f"Transcript [{video_id}]: innertube failed")
     
     # Method 2: youtube-transcript-api library
+    logger.info(f"Transcript [{video_id}]: trying youtube-transcript-api...")
     text = extract_transcript_api(video_id)
     if text and len(text) >= 50:
         return {"text": text, "source": "youtube_transcript_api", "segments": None}
+    logger.info(f"Transcript [{video_id}]: youtube-transcript-api failed")
     
     # Method 3: yt-dlp subtitles
+    logger.info(f"Transcript [{video_id}]: trying yt-dlp...")
     text = extract_transcript_ytdlp(video_url)
     if text and len(text) >= 50:
         return {"text": text, "source": "youtube_subs", "segments": None}
+    logger.info(f"Transcript [{video_id}]: yt-dlp failed")
     
     # Method 4: Whisper (last resort — needs downloaded audio)
     if video_path and os.path.exists(video_path):
+        logger.info(f"Transcript [{video_id}]: trying Whisper on local audio...")
         audio_path = extract_audio(video_path)
         if audio_path:
             whisper_result = extract_transcript_whisper(audio_path)
@@ -653,3 +660,4 @@ def get_transcript(video_url, video_path=None):
     
     logger.warning(f"All transcript methods failed for {video_url} (id={video_id})")
     return {"text": "", "source": "none", "segments": None}
+
