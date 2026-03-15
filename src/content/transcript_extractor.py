@@ -1,5 +1,5 @@
 # src/content/transcript_extractor.py
-# Pull transcript via yt-dlp subtitles or Whisper fallback
+# Pull transcript via youtube-transcript-api (primary) or yt-dlp (fallback)
 
 import os
 import subprocess
@@ -12,10 +12,94 @@ logger = logging.getLogger("clipper.content.transcript")
 TEMP_DIR = "temp"
 
 
+def extract_transcript_api(video_id):
+    """
+    Primary method: Use youtube-transcript-api to fetch transcript.
+    This is lightweight, works in CI/GitHub Actions without cookies.
+    
+    Tries in order:
+    1. Manual English subtitles
+    2. Auto-generated English subtitles
+    3. Any available language (then note for later translation)
+    
+    Returns transcript text string, or None if unavailable.
+    """
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        
+        # Try to get English transcript (manual first, then auto-generated)
+        try:
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+            # Priority 1: Manual English
+            try:
+                transcript = transcript_list.find_manually_created_transcript(['en'])
+                entries = transcript.fetch()
+                text = " ".join([entry.text for entry in entries])
+                logger.info(f"Got manual English transcript for {video_id}")
+                return text
+            except Exception:
+                pass
+            
+            # Priority 2: Auto-generated English
+            try:
+                transcript = transcript_list.find_generated_transcript(['en'])
+                entries = transcript.fetch()
+                text = " ".join([entry.text for entry in entries])
+                logger.info(f"Got auto-generated English transcript for {video_id}")
+                return text
+            except Exception:
+                pass
+            
+            # Priority 3: Any language, translate to English
+            try:
+                for transcript in transcript_list:
+                    try:
+                        translated = transcript.translate('en')
+                        entries = translated.fetch()
+                        text = " ".join([entry.text for entry in entries])
+                        logger.info(f"Got translated transcript for {video_id} (from {transcript.language_code})")
+                        return text
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+                
+        except Exception as e:
+            logger.debug(f"transcript_list failed for {video_id}: {e}")
+        
+        # Simpler fallback: just try get_transcript directly
+        try:
+            entries = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+            text = " ".join([entry.text for entry in entries])
+            logger.info(f"Got transcript via get_transcript for {video_id}")
+            return text
+        except Exception:
+            pass
+        
+        # Try auto-generated
+        try:
+            entries = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+            text = " ".join([entry.text for entry in entries])
+            return text
+        except Exception:
+            pass
+            
+        logger.info(f"No transcript available via API for {video_id}")
+        return None
+        
+    except ImportError:
+        logger.warning("youtube-transcript-api not installed. Install with: pip install youtube-transcript-api")
+        return None
+    except Exception as e:
+        logger.error(f"Transcript API error for {video_id}: {e}")
+        return None
+
+
 def extract_transcript_ytdlp(video_url, output_name="transcript"):
     """
-    Attempt to pull existing subtitles/captions from YouTube via yt-dlp.
-    Prefers manual English subs, falls back to auto-generated.
+    Fallback method: Pull subtitles via yt-dlp.
+    May fail in CI/GitHub Actions due to bot detection.
     
     Returns transcript text string, or None if unavailable.
     """
@@ -30,6 +114,8 @@ def extract_transcript_ytdlp(video_url, output_name="transcript"):
         "--sub-format", "json3",
         "--skip-download",
         "--no-check-certificates",
+        "--no-warnings",
+        "--quiet",
         "-o", subtitle_path,
         video_url
     ]
@@ -41,11 +127,23 @@ def extract_transcript_ytdlp(video_url, output_name="transcript"):
         for ext in [".en.json3", ".en.vtt", ".en.srt"]:
             sub_file = subtitle_path + ext
             if os.path.exists(sub_file):
-                return parse_subtitle_file(sub_file)
+                text = parse_subtitle_file(sub_file)
+                # Clean up the subtitle file
+                try:
+                    os.remove(sub_file)
+                except Exception:
+                    pass
+                return text
         
-        logger.info(f"No YouTube subtitles found for {video_url}")
+        logger.info(f"No YouTube subtitles found via yt-dlp for {video_url}")
         return None
         
+    except subprocess.TimeoutExpired:
+        logger.warning(f"yt-dlp subtitle extraction timed out for {video_url}")
+        return None
+    except FileNotFoundError:
+        logger.warning("yt-dlp not found in PATH")
+        return None
     except Exception as e:
         logger.error(f"yt-dlp subtitle extraction failed: {e}")
         return None
@@ -121,7 +219,7 @@ def parse_srt_vtt(content):
 
 def extract_transcript_whisper(audio_path):
     """
-    Transcribe audio using OpenAI Whisper (base model).
+    Last resort: Transcribe audio using OpenAI Whisper (base model).
     Returns transcript with word-level timestamps.
     
     This runs locally — no API calls needed.
@@ -171,21 +269,58 @@ def extract_audio(video_path, output_path=None):
     return None
 
 
+def _extract_video_id(video_url):
+    """Extract video ID from various YouTube URL formats."""
+    if not video_url:
+        return None
+    
+    # Direct video ID (no URL)
+    if len(video_url) == 11 and not video_url.startswith("http"):
+        return video_url
+    
+    # Standard URL patterns
+    patterns = [
+        r'(?:v=|/v/|youtu\.be/)([a-zA-Z0-9_-]{11})',
+        r'(?:embed/)([a-zA-Z0-9_-]{11})',
+        r'(?:shorts/)([a-zA-Z0-9_-]{11})',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, video_url)
+        if match:
+            return match.group(1)
+    
+    return None
+
+
 def get_transcript(video_url, video_path=None):
     """
     Main entry point: get transcript for a video.
-    Tries yt-dlp subtitles first, falls back to Whisper.
+    
+    Priority order:
+    1. youtube-transcript-api (fast, works in CI)
+    2. yt-dlp subtitles (fallback)
+    3. Whisper local transcription (last resort, needs audio file)
     
     Returns:
-        dict with 'text' (full text) and optionally 'segments' (timestamped)
+        dict with 'text' (full text), 'source', and optionally 'segments'
     """
-    # Try YouTube subtitles first (free, fast)
+    video_id = _extract_video_id(video_url)
+    
+    # Method 1: youtube-transcript-api (primary — works in GitHub Actions)
+    if video_id:
+        text = extract_transcript_api(video_id)
+        if text and len(text) >= 50:
+            logger.info(f"Got transcript from youtube-transcript-api ({len(text)} chars)")
+            return {"text": text, "source": "youtube_transcript_api", "segments": None}
+    
+    # Method 2: yt-dlp subtitles (fallback)
     text = extract_transcript_ytdlp(video_url)
-    if text:
-        logger.info("Got transcript from YouTube subtitles")
+    if text and len(text) >= 50:
+        logger.info(f"Got transcript from yt-dlp ({len(text)} chars)")
         return {"text": text, "source": "youtube_subs", "segments": None}
     
-    # Fall back to Whisper (local, slower)
+    # Method 3: Whisper (last resort — needs downloaded audio)
     if video_path and os.path.exists(video_path):
         audio_path = extract_audio(video_path)
         if audio_path:
