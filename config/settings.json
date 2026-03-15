@@ -17,7 +17,7 @@
     "min_long_clip_minutes": 3,
     "shorts_max_seconds": 59,
     "shorts_min_seconds": 30,
-    "scan_videos_last_days": 14,
+    "scan_videos_last_days": 365,
     "gemini_model": "gemini-1.5-flash",
     "whisper_model": "base",
     "background_music_volume": 0.10

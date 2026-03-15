@@ -312,3 +312,88 @@ def get_video_details(video_id, channel_name=None):
         logger.error(f"Failed to get video details for {video_id}: {e}")
         return None
 
+
+def get_channel_uploads(channel_id, max_pages=3, channel_name=None):
+    """
+    Get videos from a channel's uploads playlist using playlistItems.list.
+    Much cheaper than search API: 1 quota/call (vs 100 for search).
+    Returns up to max_pages * 50 video items from the channel's full catalog.
+    
+    Args:
+        channel_id: YouTube channel ID (UCxxxxx)
+        max_pages: Max number of pages to fetch (50 videos/page)
+        channel_name: Channel name for API key selection
+    
+    Returns:
+        List of video items in the same format as get_latest_videos()
+    """
+    api_key = _get_api_key_for_context(channel_name)
+    
+    # Convert channel ID to uploads playlist ID
+    # UC... → UU... (uploads playlist convention)
+    if channel_id.startswith("UC"):
+        uploads_playlist_id = "UU" + channel_id[2:]
+    else:
+        logger.warning(f"Channel ID {channel_id} doesn't start with UC, trying direct")
+        uploads_playlist_id = channel_id
+    
+    all_items = []
+    next_page_token = None
+    
+    for page in range(max_pages):
+        url = f"{YOUTUBE_API_BASE}/playlistItems"
+        params = {
+            "part": "snippet",
+            "playlistId": uploads_playlist_id,
+            "maxResults": 50,
+            "key": api_key
+        }
+        if next_page_token:
+            params["pageToken"] = next_page_token
+        
+        try:
+            resp = requests.get(url, params=params, timeout=15)
+            
+            if resp.status_code == 403:
+                try:
+                    error_data = resp.json()
+                    error_reason = error_data.get("error", {}).get("errors", [{}])[0].get("reason", "unknown")
+                    logger.warning(f"YouTube API 403 for uploads playlist: {error_reason}")
+                except Exception:
+                    logger.warning(f"YouTube API 403 for uploads playlist")
+                break
+            
+            resp.raise_for_status()
+            data = resp.json()
+            
+            for item in data.get("items", []):
+                snippet = item.get("snippet", {})
+                video_id = snippet.get("resourceId", {}).get("videoId", "")
+                
+                if not video_id:
+                    continue
+                
+                # Format to match get_latest_videos() response structure
+                all_items.append({
+                    "id": {"videoId": video_id},
+                    "snippet": {
+                        "title": snippet.get("title", ""),
+                        "channelId": channel_id,
+                        "channelTitle": snippet.get("channelTitle", ""),
+                        "publishedAt": snippet.get("publishedAt", ""),
+                        "description": snippet.get("description", "")
+                    }
+                })
+            
+            next_page_token = data.get("nextPageToken")
+            if not next_page_token:
+                break  # No more pages
+                
+        except Exception as e:
+            logger.error(f"Failed to get uploads for {channel_id} (page {page + 1}): {e}")
+            break
+    
+    logger.info(f"Channel uploads: found {len(all_items)} video(s) from {channel_id}")
+    return all_items
+
+

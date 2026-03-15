@@ -18,7 +18,7 @@ from src.utils.dry_run import is_dry_run
 from src.utils.gemini_client import set_active_channel
 
 from src.discovery.whitelist_manager import get_active_channels, get_whitelist_entry
-from src.discovery.channel_scanner import get_latest_videos, get_video_details
+from src.discovery.channel_scanner import get_latest_videos, get_video_details, get_latest_videos_rss, get_channel_uploads
 
 from src.content.video_fetcher import download_segment, cleanup_temp
 from src.content.transcript_extractor import get_transcript, check_video_playability, set_cookies_for_channel
@@ -96,34 +96,77 @@ def route_manual_videos(manual_entries):
 def discover_candidates_for_channel(channel_entry, settings, target_channel=None):
     """
     Discover clip candidates from a whitelisted channel.
-    Pulls latest videos, extracts transcripts, runs Gemini clip detection.
+    
+    Strategy (quota-efficient):
+    1. Get video pool from channel's full catalog (RSS free + playlistItems 1 quota/call)
+    2. Filter out already-clipped videos (posted.json)
+    3. Randomly pick a few to actually process (transcript + Gemini)
     
     Args:
         target_channel: Our channel name (psyched/minted/etc) for API key selection
     """
+    import random
     channel_id = channel_entry.get("channel_id", "")
     channel_name = channel_entry.get("channel_name", "Unknown")
     restrictions = channel_entry.get("restrictions", [])
     
-    scan_days = settings.get("content", {}).get("scan_videos_last_days", 7)
+    # Max videos to actually process per scan (saves quota & time)
+    max_candidates_to_process = 3
     
     logger.info(f"Scanning channel: {channel_name}")
     
-    videos = get_latest_videos(channel_id, max_results=5, days_back=scan_days, channel_name=target_channel)
+    # ─── Step 1: Build video pool (combine RSS + uploads playlist) ───
+    video_pool = []
+    seen_ids = set()
+    
+    # 1a. RSS feed first (FREE, gives ~15 most recent videos)
+    rss_videos = get_latest_videos_rss(channel_id, max_results=15, days_back=365)
+    for v in rss_videos:
+        vid = v.get("id", {}).get("videoId", "")
+        if vid and vid not in seen_ids:
+            seen_ids.add(vid)
+            video_pool.append(v)
+    
+    # 1b. Uploads playlist (1 quota/call, up to 150 videos from full catalog)
+    uploads = get_channel_uploads(channel_id, max_pages=3, channel_name=target_channel)
+    for v in uploads:
+        vid = v.get("id", {}).get("videoId", "")
+        if vid and vid not in seen_ids:
+            seen_ids.add(vid)
+            video_pool.append(v)
+    
+    logger.info(f"  Video pool: {len(video_pool)} total ({len(rss_videos)} RSS + {len(uploads)} uploads)")
+    
+    # ─── Step 2: Filter out already-clipped videos ───
+    available = []
+    for video_item in video_pool:
+        video_id = video_item.get("id", {}).get("videoId", "")
+        if not video_id:
+            continue
+        existing = is_video_already_processed(video_id, POSTED_PATH)
+        if not existing:
+            available.append(video_item)
+    
+    logger.info(f"  Available (not yet clipped): {len(available)} of {len(video_pool)}")
+    
+    if not available:
+        logger.info(f"  All videos from {channel_name} already processed!")
+        return []
+    
+    # ─── Step 3: Randomly pick a few to process ───
+    random.shuffle(available)
+    to_process = available[:max_candidates_to_process]
+    logger.info(f"  Processing {len(to_process)} random candidate(s)")
+    
+    # ─── Step 4: Process each candidate (details + transcript) ───
     candidates = []
     
-    for video_item in videos:
+    for video_item in to_process:
         video_id = video_item.get("id", {}).get("videoId", "")
         if not video_id:
             continue
         
-        # Skip already processed
-        existing = is_video_already_processed(video_id, POSTED_PATH)
-        if existing:
-            logger.info(f"  Skipping {video_id} — already processed")
-            continue
-        
-        # Get video details
+        # Get video details (1 quota/call)
         details = get_video_details(video_id, channel_name=target_channel)
         if not details:
             continue
@@ -134,8 +177,10 @@ def discover_candidates_for_channel(channel_entry, settings, target_channel=None
         
         # Skip restricted videos
         if status.get("privacyStatus") != "public":
+            logger.info(f"  Skipping {video_id} — not public")
             continue
         if content.get("contentRating", {}).get("ytRating") == "ytAgeRestricted":
+            logger.info(f"  Skipping {video_id} — age restricted")
             continue
         
         # Get duration and classify format
@@ -150,12 +195,13 @@ def discover_candidates_for_channel(channel_entry, settings, target_channel=None
         
         video_url = f"https://www.youtube.com/watch?v={video_id}"
         
-        # Check playability BEFORE trying transcript (skip unavailable videos early)
+        # Check playability BEFORE trying transcript
         if not check_video_playability(video_id):
             logger.info(f"  Skipping {video_id} — video not playable/unavailable")
             continue
         
-        # Get transcript
+        # Get transcript (uses CF Worker → innertube → yt-dlp → Whisper)
+        logger.info(f"  Processing {channel_name} candidate: {video_id} ({snippet.get('publishedAt', '?')[:10]}, {duration_min:.1f}min)")
         transcript_data = get_transcript(video_url)
         transcript_text = transcript_data.get("text", "")
         
