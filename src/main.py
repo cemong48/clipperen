@@ -93,10 +93,13 @@ def route_manual_videos(manual_entries):
     return routed
 
 
-def discover_candidates_for_channel(channel_entry, settings):
+def discover_candidates_for_channel(channel_entry, settings, target_channel=None):
     """
     Discover clip candidates from a whitelisted channel.
     Pulls latest videos, extracts transcripts, runs Gemini clip detection.
+    
+    Args:
+        target_channel: Our channel name (psyched/minted/etc) for API key selection
     """
     channel_id = channel_entry.get("channel_id", "")
     channel_name = channel_entry.get("channel_name", "Unknown")
@@ -106,7 +109,7 @@ def discover_candidates_for_channel(channel_entry, settings):
     
     logger.info(f"Scanning channel: {channel_name}")
     
-    videos = get_latest_videos(channel_id, max_results=5, days_back=scan_days)
+    videos = get_latest_videos(channel_id, max_results=5, days_back=scan_days, channel_name=target_channel)
     candidates = []
     
     for video_item in videos:
@@ -121,7 +124,7 @@ def discover_candidates_for_channel(channel_entry, settings):
             continue
         
         # Get video details
-        details = get_video_details(video_id)
+        details = get_video_details(video_id, channel_name=target_channel)
         if not details:
             continue
         
@@ -409,14 +412,19 @@ def run_daily_pipeline():
                 logger.error(f"Manual video failed: {e}")
                 total_failed += 1
         
-        # Discover auto candidates
+        # Discover auto candidates — only scan whitelist channels for THIS target channel
         active_channels = get_active_channels(WHITELIST_PATH)
         
-        # Filter channels matching this theme
-        # (In production, the whitelist would have theme info matching channel_name)
+        # Filter to only channels assigned to this target channel
+        my_channels = [
+            ch for ch in active_channels
+            if ch.get("target_channel") == channel_name
+        ]
+        logger.info(f"Scanning {len(my_channels)} source(s) for {channel_name}")
+        
         all_candidates = []
-        for wl_channel in active_channels:
-            candidates = discover_candidates_for_channel(wl_channel, settings)
+        for wl_channel in my_channels:
+            candidates = discover_candidates_for_channel(wl_channel, settings, target_channel=channel_name)
             all_candidates.extend(candidates)
         
         # Process auto shorts
