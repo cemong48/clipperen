@@ -1,3 +1,404 @@
 {
-  "channels": []
+  "channels": [
+    {
+      "channel_id": "UC2D2CMWXMOVWx7giW1n3LIg",
+      "channel_name": "Huberman Lab",
+      "theme": "Psychology & Self-Improvement",
+      "target_channel": "psyched",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCL_f53ZEJxp8TtlOkHwMV9Q",
+      "channel_name": "Jordan B Peterson",
+      "theme": "Psychology & Self-Improvement",
+      "target_channel": "psyched",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCdFuAWb9Fv3TGCzffNVBmEA",
+      "channel_name": "HealthyGamerGG",
+      "theme": "Psychology & Self-Improvement",
+      "target_channel": "psyched",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCyPobQHPMWgTFBB-H-BXKOA",
+      "channel_name": "Jay Shetty",
+      "theme": "Psychology & Self-Improvement",
+      "target_channel": "psyched",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCpuqFSGp_kURztHIHyaW3rQ",
+      "channel_name": "Therapy in a Nutshell",
+      "theme": "Psychology & Self-Improvement",
+      "target_channel": "psyched",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCFMnEB6tQaLcRG1lhvGdZIQ",
+      "channel_name": "Alex Hormozi",
+      "theme": "Finance & Business",
+      "target_channel": "minted",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCV6KDgJskWaEckne5aPA0aQ",
+      "channel_name": "Graham Stephan",
+      "theme": "Finance & Business",
+      "target_channel": "minted",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCmjU3gSH4SEOXhFjJSklnyA",
+      "channel_name": "Codie Sanchez",
+      "theme": "Finance & Business",
+      "target_channel": "minted",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCIypBKKqXVSCEcIFDHkB4vw",
+      "channel_name": "Valuetainment",
+      "theme": "Finance & Business",
+      "target_channel": "minted",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCXv2-en0WR0nBXEFJtYm4hQ",
+      "channel_name": "My First Million",
+      "theme": "Finance & Business",
+      "target_channel": "minted",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCPnlG9X4t8XYQC8FQlL5R8A",
+      "channel_name": "Peter Attia MD",
+      "theme": "Health & Science",
+      "target_channel": "vitals",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCWF8338JqGSqiuSEVLMF5nA",
+      "channel_name": "FoundMyFitness",
+      "theme": "Health & Science",
+      "target_channel": "vitals",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UC70SrI3VkT1MXALRtf0pcHg",
+      "channel_name": "Thomas DeLauer",
+      "theme": "Health & Science",
+      "target_channel": "vitals",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCeBiQTfhOzaLBkHFH2X1LcA",
+      "channel_name": "Mark Hyman MD",
+      "theme": "Health & Science",
+      "target_channel": "vitals",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCwFh9WtlaSc9rjPGHsLKRNQ",
+      "channel_name": "David Sinclair",
+      "theme": "Health & Science",
+      "target_channel": "vitals",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCSHZKyawb77ixDdsGog4iWA",
+      "channel_name": "Lex Fridman",
+      "theme": "Tech & AI",
+      "target_channel": "wired",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCbfYPyITQ-7l4upoX8nvctg",
+      "channel_name": "Andrej Karpathy",
+      "theme": "Tech & AI",
+      "target_channel": "wired",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCm4bDkRGEe7bGN_8BmRCPuA",
+      "channel_name": "David Shapiro",
+      "theme": "Tech & AI",
+      "target_channel": "wired",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCMpNyBqGCLs0CrBzQ4JuIXQ",
+      "channel_name": "Matt Wolfe",
+      "theme": "Tech & AI",
+      "target_channel": "wired",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCZHmQk67mSJgfCCTn7xBfew",
+      "channel_name": "Yannic Kilcher",
+      "theme": "Tech & AI",
+      "target_channel": "wired",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCMGmbS1sFv3Q5_UxyvCxM6g",
+      "channel_name": "Ryan Holiday",
+      "theme": "Philosophy & Stoicism",
+      "target_channel": "sage",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCiRiQGCAjgCPRr-6nxFGa3A",
+      "channel_name": "Academy of Ideas",
+      "theme": "Philosophy & Stoicism",
+      "target_channel": "sage",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCMnULQ3wMdOkBgNM4h9T5hA",
+      "channel_name": "Einzelgänger",
+      "theme": "Philosophy & Stoicism",
+      "target_channel": "sage",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCqYPhGiB9tkShZorfgcL2lA",
+      "channel_name": "What I've Learned",
+      "theme": "Philosophy & Stoicism",
+      "target_channel": "sage",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    },
+    {
+      "channel_id": "UCFcJnSBpk2gAFa8bhjONkGQ",
+      "channel_name": "Pursuit of Wonder",
+      "theme": "Philosophy & Stoicism",
+      "target_channel": "sage",
+      "permission": {
+        "source": "seed_channel",
+        "confidence": 100,
+        "notes": "Initial seed channel from instructions"
+      },
+      "added_at": "2026-03-15T07:00:00Z",
+      "added_by": "system_init",
+      "status": "active",
+      "restrictions": [],
+      "affiliate_requirements": {}
+    }
+  ]
 }
