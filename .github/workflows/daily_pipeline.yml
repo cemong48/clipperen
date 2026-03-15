@@ -56,8 +56,6 @@ jobs:
           GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
           GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
           # Optional
-          ACR_ACCESS_KEY: ${{ secrets.ACR_ACCESS_KEY }}
-          ACR_ACCESS_SECRET: ${{ secrets.ACR_ACCESS_SECRET }}
           DRY_RUN: ${{ vars.DRY_RUN || 'false' }}
         run: python src/main.py
 
