@@ -1,0 +1,54 @@
+{
+  "seeds": [
+    {
+      "theme": "Psychology & Self-Improvement",
+      "channels": [
+        {"name": "Huberman Lab", "channel_id": "UC2D2CMWXMOVWx7giW1n3LIg"},
+        {"name": "Jordan B Peterson", "channel_id": "UCL_f53ZEJxp8TtlOkHwMV9Q"},
+        {"name": "HealthyGamerGG", "channel_id": "UCdFuAWb9Fv3TGCzffNVBmEA"},
+        {"name": "Jay Shetty", "channel_id": "UCyPobQHPMWgTFBB-H-BXKOA"},
+        {"name": "Therapy in a Nutshell", "channel_id": "UCpuqFSGp_kURztHIHyaW3rQ"}
+      ]
+    },
+    {
+      "theme": "Finance & Business",
+      "channels": [
+        {"name": "Alex Hormozi", "channel_id": "UCFMnEB6tQaLcRG1lhvGdZIQ"},
+        {"name": "Graham Stephan", "channel_id": "UCV6KDgJskWaEckne5aPA0aQ"},
+        {"name": "Codie Sanchez", "channel_id": "UCmjU3gSH4SEOXhFjJSklnyA"},
+        {"name": "Valuetainment", "channel_id": "UCIypBKKqXVSCEcIFDHkB4vw"},
+        {"name": "My First Million", "channel_id": "UCXv2-en0WR0nBXEFJtYm4hQ"}
+      ]
+    },
+    {
+      "theme": "Health & Science",
+      "channels": [
+        {"name": "Peter Attia MD", "channel_id": "UCPnlG9X4t8XYQC8FQlL5R8A"},
+        {"name": "FoundMyFitness", "channel_id": "UCWF8338JqGSqiuSEVLMF5nA"},
+        {"name": "Thomas DeLauer", "channel_id": "UC70SrI3VkT1MXALRtf0pcHg"},
+        {"name": "Mark Hyman MD", "channel_id": "UCeBiQTfhOzaLBkHFH2X1LcA"},
+        {"name": "David Sinclair", "channel_id": "UCwFh9WtlaSc9rjPGHsLKRNQ"}
+      ]
+    },
+    {
+      "theme": "Tech & AI",
+      "channels": [
+        {"name": "Lex Fridman", "channel_id": "UCSHZKyawb77ixDdsGog4iWA"},
+        {"name": "Andrej Karpathy", "channel_id": "UCbfYPyITQ-7l4upoX8nvctg"},
+        {"name": "David Shapiro", "channel_id": "UCm4bDkRGEe7bGN_8BmRCPuA"},
+        {"name": "Matt Wolfe", "channel_id": "UCMpNyBqGCLs0CrBzQ4JuIXQ"},
+        {"name": "Yannic Kilcher", "channel_id": "UCZHmQk67mSJgfCCTn7xBfew"}
+      ]
+    },
+    {
+      "theme": "Philosophy & Stoicism",
+      "channels": [
+        {"name": "Ryan Holiday", "channel_id": "UCMGmbS1sFv3Q5_UxyvCxM6g"},
+        {"name": "Academy of Ideas", "channel_id": "UCiRiQGCAjgCPRr-6nxFGa3A"},
+        {"name": "Einzelgänger", "channel_id": "UCMnULQ3wMdOkBgNM4h9T5hA"},
+        {"name": "What I've Learned", "channel_id": "UCqYPhGiB9tkShZorfgcL2lA"},
+        {"name": "Pursuit of Wonder", "channel_id": "UCFcJnSBpk2gAFa8bhjONkGQ"}
+      ]
+    }
+  ]
+}

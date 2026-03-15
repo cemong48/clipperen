@@ -1,0 +1,1 @@
+# Clipper Channel Autoposting System

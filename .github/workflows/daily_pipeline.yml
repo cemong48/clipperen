@@ -1,0 +1,70 @@
+name: Daily Content Pipeline
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 00:00 UTC = 07:00 WIB
+  workflow_dispatch:
+
+jobs:
+  run_pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install system tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          pip install yt-dlp openai-whisper
+
+      - name: Check seed verification status
+        run: |
+          if [ ! -f "logs/seed_verification_report.json" ]; then
+            echo "WARNING: Seeds not verified. Run scripts/verify_seeds.py first."
+          fi
+
+      - name: Run pipeline
+        env:
+          # Per-channel YouTube credentials (1=psyched, 2=minted, 3=vitals, 4=wired, 5=sage)
+          YOUTUBE_API_KEY_1: ${{ secrets.YOUTUBE_API_KEY_1 }}
+          YOUTUBE_API_KEY_2: ${{ secrets.YOUTUBE_API_KEY_2 }}
+          YOUTUBE_API_KEY_3: ${{ secrets.YOUTUBE_API_KEY_3 }}
+          YOUTUBE_API_KEY_4: ${{ secrets.YOUTUBE_API_KEY_4 }}
+          YOUTUBE_API_KEY_5: ${{ secrets.YOUTUBE_API_KEY_5 }}
+          YOUTUBE_CLIENT_SECRET_1: ${{ secrets.YOUTUBE_CLIENT_SECRET_1 }}
+          YOUTUBE_CLIENT_SECRET_2: ${{ secrets.YOUTUBE_CLIENT_SECRET_2 }}
+          YOUTUBE_CLIENT_SECRET_3: ${{ secrets.YOUTUBE_CLIENT_SECRET_3 }}
+          YOUTUBE_CLIENT_SECRET_4: ${{ secrets.YOUTUBE_CLIENT_SECRET_4 }}
+          YOUTUBE_CLIENT_SECRET_5: ${{ secrets.YOUTUBE_CLIENT_SECRET_5 }}
+          YOUTUBE_REFRESH_TOKEN_1: ${{ secrets.YOUTUBE_REFRESH_TOKEN_1 }}
+          YOUTUBE_REFRESH_TOKEN_2: ${{ secrets.YOUTUBE_REFRESH_TOKEN_2 }}
+          YOUTUBE_REFRESH_TOKEN_3: ${{ secrets.YOUTUBE_REFRESH_TOKEN_3 }}
+          YOUTUBE_REFRESH_TOKEN_4: ${{ secrets.YOUTUBE_REFRESH_TOKEN_4 }}
+          YOUTUBE_REFRESH_TOKEN_5: ${{ secrets.YOUTUBE_REFRESH_TOKEN_5 }}
+          # Per-channel Gemini API keys
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
+          # Optional
+          ACR_ACCESS_KEY: ${{ secrets.ACR_ACCESS_KEY }}
+          ACR_ACCESS_SECRET: ${{ secrets.ACR_ACCESS_SECRET }}
+          DRY_RUN: ${{ vars.DRY_RUN || 'false' }}
+        run: python src/main.py
+
+      - name: Commit database updates
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add database/ logs/ config/whitelist.json manual_queue/
+          git commit -m "Daily pipeline run $(date +%Y-%m-%d)" || exit 0
+          git push

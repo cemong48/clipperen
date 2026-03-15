@@ -1,0 +1,59 @@
+name: Weekly Channel Discovery
+on:
+  schedule:
+    - cron: '0 2 * * 0'  # Every Sunday 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run discovery scan
+        env:
+          YOUTUBE_API_KEY_1: ${{ secrets.YOUTUBE_API_KEY_1 }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY_1 }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY_1 }}
+        run: |
+          python -c "
+          from src.discovery.channel_scanner import discover_new_channels
+          from src.discovery.permission_detector import scan_channel_permissions
+          from src.discovery.whitelist_manager import add_to_whitelist, revalidate_all
+          import time
+
+          print('=== DISCOVERY SCAN ===')
+          new_channels = discover_new_channels()
+
+          approved = 0
+          for ch in new_channels:
+              perm = scan_channel_permissions(ch['channel_id'], ch['channel_name'])
+              if perm.get('confidence', 0) >= 70:
+                  add_to_whitelist(ch, perm)
+                  approved += 1
+              time.sleep(1)
+
+          print(f'Discovered: {len(new_channels)}, Approved: {approved}')
+
+          print('=== RE-VALIDATION ===')
+          suspended = revalidate_all()
+          print(f'Channels suspended: {suspended}')
+          "
+
+      - name: Commit whitelist updates
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add config/whitelist.json database/
+          git commit -m "Weekly channel discovery $(date +%Y-%m-%d)" || exit 0
+          git push

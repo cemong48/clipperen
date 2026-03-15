@@ -1,0 +1,38 @@
+{
+  "channel": {
+    "name": "Your Channel Name",
+    "youtube_channel_id": "UCxxxxxx",
+    "language_primary": "en",
+    "language_secondary": "id"
+  },
+  "posting": {
+    "daily_slots": ["07:00", "11:00", "16:00", "20:00"],
+    "random_offset_minutes": 45,
+    "timezone": "Asia/Jakarta",
+    "shorts_slots": ["07:00", "16:00"],
+    "long_slots": ["11:00", "20:00"]
+  },
+  "content": {
+    "max_long_clip_minutes": 10,
+    "min_long_clip_minutes": 3,
+    "shorts_max_seconds": 59,
+    "shorts_min_seconds": 30,
+    "scan_videos_last_days": 7,
+    "gemini_model": "gemini-1.5-flash",
+    "whisper_model": "base",
+    "background_music_volume": 0.10
+  },
+  "discovery": {
+    "min_confidence_auto_approve": 85,
+    "min_confidence_pending_review": 70,
+    "revalidate_interval_days": 7,
+    "max_channels_per_scan": 50
+  },
+  "performance": {
+    "review_after_hours": 48,
+    "ctr_minimum_pct": 4.0,
+    "avd_minimum_pct": 40.0,
+    "max_auto_updates_per_video": 3,
+    "low_impression_threshold": 500
+  }
+}

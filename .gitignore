@@ -1,0 +1,29 @@
+# Secrets — jangan pernah commit
+.env
+*.env
+secrets/
+config/secrets.json
+**/refresh_token*.txt
+**/client_secret*.json
+
+# Log files
+logs/*.log
+
+# Temporary processing files
+tmp/
+temp/
+*.tmp
+
+# Large binary assets
+assets/music/downloads/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.eggs/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
