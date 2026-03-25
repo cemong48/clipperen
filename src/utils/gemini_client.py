@@ -28,7 +28,9 @@ def set_active_channel(channel_name):
 
 
 def get_client(channel_name=None):
-    """Get or create Gemini client for a specific channel's API key."""
+    """Get or create Gemini client for a specific channel's API key.
+    STRICT isolation: each channel uses ONLY GEMINI_API_KEY_{idx}.
+    """
     global _client_cache
 
     ch = channel_name or _active_channel
@@ -36,17 +38,14 @@ def get_client(channel_name=None):
     if ch in _client_cache:
         return _client_cache[ch]
 
-    # Get per-channel Gemini key
-    try:
-        from .channel_credentials import get_gemini_api_key
-        api_key = get_gemini_api_key(ch)
-    except (ImportError, ValueError):
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+    # Get per-channel Gemini key — NO fallback to generic key
+    from .channel_credentials import get_gemini_api_key
+    api_key = get_gemini_api_key(ch)
 
     if not api_key:
         raise ValueError(
             f"GEMINI_API_KEY not set for channel {ch}. "
-            f"Set GEMINI_API_KEY or GEMINI_API_KEY_X in environment."
+            f"Set GEMINI_API_KEY_{{idx}} in GitHub Secrets."
         )
 
     client = genai.Client(api_key=api_key)

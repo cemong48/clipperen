@@ -6,10 +6,23 @@ import re
 import logging
 import requests
 
+from ..utils.channel_credentials import get_api_key
+
 logger = logging.getLogger("clipper.discovery.permission")
 
-YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
+
+
+def _get_api_key_for_channel(channel_name=None):
+    """Get YouTube API key for a specific channel. NO cross-channel fallback."""
+    if channel_name:
+        try:
+            return get_api_key(channel_name)
+        except ValueError:
+            logger.error(f"No API key for channel {channel_name}")
+            return ""
+    logger.warning("No channel_name provided to permission_detector")
+    return ""
 
 # Permission keywords — positive signals
 PERMISSION_KEYWORDS = [
@@ -77,13 +90,13 @@ def check_text_for_signals(text):
     }
 
 
-def get_channel_description(channel_id):
+def get_channel_description(channel_id, channel_name=None):
     """Fetch channel description from YouTube API."""
     url = f"{YOUTUBE_API_BASE}/channels"
     params = {
         "part": "snippet,brandingSettings",
         "id": channel_id,
-        "key": YOUTUBE_API_KEY
+        "key": _get_api_key_for_channel(channel_name)
     }
     try:
         resp = requests.get(url, params=params, timeout=10)
@@ -108,8 +121,9 @@ def get_channel_community_posts(channel_id):
     return []
 
 
-def get_recent_video_descriptions(channel_id, count=5):
+def get_recent_video_descriptions(channel_id, count=5, channel_name=None):
     """Get descriptions from the channel's most recent videos."""
+    api_key = _get_api_key_for_channel(channel_name)
     url = f"{YOUTUBE_API_BASE}/search"
     params = {
         "part": "snippet",
@@ -117,7 +131,7 @@ def get_recent_video_descriptions(channel_id, count=5):
         "type": "video",
         "order": "date",
         "maxResults": count,
-        "key": YOUTUBE_API_KEY
+        "key": api_key
     }
     
     descriptions = []
@@ -129,12 +143,11 @@ def get_recent_video_descriptions(channel_id, count=5):
         for item in items:
             video_id = item.get("id", {}).get("videoId", "")
             if video_id:
-                # Get full video description
                 vid_url = f"{YOUTUBE_API_BASE}/videos"
                 vid_params = {
                     "part": "snippet",
                     "id": video_id,
-                    "key": YOUTUBE_API_KEY
+                    "key": api_key
                 }
                 vid_resp = requests.get(vid_url, params=vid_params, timeout=10)
                 vid_items = vid_resp.json().get("items", [])
@@ -147,8 +160,9 @@ def get_recent_video_descriptions(channel_id, count=5):
     return descriptions
 
 
-def get_pinned_comments(channel_id, video_count=3):
+def get_pinned_comments(channel_id, video_count=3, channel_name=None):
     """Check pinned comments on recent videos for permission signals."""
+    api_key = _get_api_key_for_channel(channel_name)
     url = f"{YOUTUBE_API_BASE}/search"
     params = {
         "part": "snippet",
@@ -156,7 +170,7 @@ def get_pinned_comments(channel_id, video_count=3):
         "type": "video",
         "order": "date",
         "maxResults": video_count,
-        "key": YOUTUBE_API_KEY
+        "key": api_key
     }
     
     pinned_comments = []
@@ -170,14 +184,13 @@ def get_pinned_comments(channel_id, video_count=3):
             if not video_id:
                 continue
             
-            # Get comment threads for this video
             comment_url = f"{YOUTUBE_API_BASE}/commentThreads"
             comment_params = {
                 "part": "snippet",
                 "videoId": video_id,
                 "order": "relevance",
                 "maxResults": 5,
-                "key": YOUTUBE_API_KEY
+                "key": api_key
             }
             
             comment_resp = requests.get(comment_url, params=comment_params, timeout=10)
@@ -185,7 +198,6 @@ def get_pinned_comments(channel_id, video_count=3):
             
             for ci in comment_items:
                 snippet = ci.get("snippet", {}).get("topLevelComment", {}).get("snippet", {})
-                # Check if comment is from the channel owner
                 if snippet.get("authorChannelId", {}).get("value", "") == channel_id:
                     pinned_comments.append({
                         "video_id": video_id,

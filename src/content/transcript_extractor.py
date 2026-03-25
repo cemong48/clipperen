@@ -90,7 +90,7 @@ def check_video_playability(video_id):
     Falls back to assuming playable if API check fails.
     """
     # Method 1: YouTube Data API (works reliably from CI)
-    api_key = _get_api_key()
+    api_key = _get_api_key_for_current_channel()
     if api_key:
         try:
             url = "https://www.googleapis.com/youtube/v3/videos"
@@ -151,13 +151,13 @@ def check_video_playability(video_id):
         return True  # Assume playable if check fails
 
 
-def _get_api_key():
-    """Get any available YouTube API key."""
-    for i in range(1, 6):
-        key = os.environ.get(f"YOUTUBE_API_KEY_{i}", "")
-        if key:
-            return key
-    return os.environ.get("YOUTUBE_API_KEY", "")
+def _get_api_key_for_current_channel():
+    """Get YouTube API key for the CURRENT channel only. NO cross-channel fallback."""
+    global _current_channel_idx
+    key = os.environ.get(f"YOUTUBE_API_KEY_{_current_channel_idx}", "")
+    if not key:
+        logger.warning(f"YOUTUBE_API_KEY_{_current_channel_idx} not set")
+    return key
 
 
 def extract_transcript_captions_api(video_id):
@@ -173,7 +173,7 @@ def extract_transcript_captions_api(video_id):
     
     Returns: True if captions exist, False otherwise
     """
-    api_key = _get_api_key()
+    api_key = _get_api_key_for_current_channel()
     if not api_key:
         return None
     
