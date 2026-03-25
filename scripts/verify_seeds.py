@@ -7,7 +7,12 @@ import os
 import time
 import requests
 
-YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
+# Use per-channel key — try each one (this utility runs once, not per-channel loop)
+YOUTUBE_API_KEY = ""
+for _i in range(1, 6):
+    YOUTUBE_API_KEY = os.environ.get(f"YOUTUBE_API_KEY_{_i}", "")
+    if YOUTUBE_API_KEY:
+        break
 SEEDS_PATH = "config/seeds.json"
 REPORT_PATH = "logs/seed_verification_report.json"
 
