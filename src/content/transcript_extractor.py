@@ -215,15 +215,37 @@ def extract_transcript_api(video_id):
     This is the MOST RELIABLE method as of 2026 — the library handles
     YouTube's anti-bot detection internally via watch page scraping.
     
-    v1.2.4 API: YouTubeTranscriptApi() instance → .fetch() or .list()
-    (NOT the old v0.6.x class methods like .get_transcript())
+    CRITICAL: In CI (GitHub Actions), YouTube blocks requests from datacenter IPs
+    with 'RequestBlocked'. To bypass this, we load the channel's cookies into a
+    requests.Session and pass it via http_client parameter. This authenticates
+    the request and avoids bot detection.
+    
+    v1.2.4 API: YouTubeTranscriptApi(http_client=session) → .fetch() or .list()
     
     Returns transcript text string, or None if unavailable.
     """
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         
-        ytt = YouTubeTranscriptApi()
+        # Build a cookies-loaded session to bypass YouTube bot detection in CI
+        session = None
+        cookies_path = _get_cookies_path()
+        if cookies_path:
+            try:
+                session = requests.Session()
+                jar = MozillaCookieJar(cookies_path)
+                jar.load(ignore_discard=True, ignore_expires=True)
+                session.cookies = jar
+                logger.info(f"youtube-transcript-api: using cookies from {cookies_path} ({len(jar)} cookies)")
+            except Exception as e:
+                logger.info(f"youtube-transcript-api: could not load cookies: {e}")
+                session = None
+        
+        # Create API instance — with cookies session if available, plain otherwise
+        if session:
+            ytt = YouTubeTranscriptApi(http_client=session)
+        else:
+            ytt = YouTubeTranscriptApi()
         
         # Try direct fetch first (fastest)
         try:
@@ -741,8 +763,8 @@ def get_transcript(video_url, video_path=None):
     Main entry point: get transcript for a video.
     
     Priority order (2026 — innertube /player API is dead):
-    1. youtube-transcript-api library (MOST RELIABLE — scrapes watch page)
-    2. Cloudflare Worker proxy (if deployed, uses watch page scraping)
+    1. youtube-transcript-api + cookies (bypasses CI bot detection)
+    2. Cloudflare Worker proxy (clean IPs, needs re-deploy with new worker.js)
     3. yt-dlp subtitles with cookies (bypasses bot detection)
     4. Direct innertube API (mostly dead, kept as hail-mary)
     5. Whisper local transcription (last resort, needs audio file)
