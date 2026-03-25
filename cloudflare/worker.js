@@ -60,19 +60,28 @@ export default {
 // ─── Transcript Extraction ───────────────────────────────────────────
 
 async function getTranscript(videoId, corsHeaders) {
-  // Try multiple innertube clients
+  // Try multiple innertube clients — IOS is most reliable for bypassing login requirements
   const clients = [
     {
-      name: "WEB",
+      name: "IOS",
       payload: {
         context: {
-          client: { clientName: "WEB", clientVersion: "2.20240101.00.00", hl: "en", gl: "US" },
+          client: {
+            clientName: "IOS",
+            clientVersion: "19.29.1",
+            deviceMake: "Apple",
+            deviceModel: "iPhone16,2",
+            hl: "en",
+            gl: "US",
+          },
         },
         videoId,
       },
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
+        "X-Youtube-Client-Name": "5",
+        "X-Youtube-Client-Version": "19.29.1",
       },
     },
     {
@@ -81,8 +90,8 @@ async function getTranscript(videoId, corsHeaders) {
         context: {
           client: {
             clientName: "ANDROID",
-            clientVersion: "19.09.37",
-            androidSdkVersion: 30,
+            clientVersion: "19.29.37",
+            androidSdkVersion: 34,
             hl: "en",
             gl: "US",
           },
@@ -91,18 +100,23 @@ async function getTranscript(videoId, corsHeaders) {
       },
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+        "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14) gzip",
+        "X-Youtube-Client-Name": "3",
+        "X-Youtube-Client-Version": "19.29.37",
       },
     },
     {
-      name: "WEB_EMBEDDED",
+      name: "TV_EMBEDDED",
       payload: {
         context: {
           client: {
-            clientName: "WEB_EMBEDDED_PLAYER",
-            clientVersion: "1.20240101.00.00",
+            clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientVersion: "2.0",
             hl: "en",
             gl: "US",
+          },
+          thirdParty: {
+            embedUrl: "https://www.google.com",
           },
         },
         videoId,
@@ -110,6 +124,19 @@ async function getTranscript(videoId, corsHeaders) {
       headers: {
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    },
+    {
+      name: "WEB",
+      payload: {
+        context: {
+          client: { clientName: "WEB", clientVersion: "2.20250325.00.00", hl: "en", gl: "US" },
+        },
+        videoId,
+      },
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       },
     },
   ];
