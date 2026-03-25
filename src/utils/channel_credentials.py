@@ -24,25 +24,17 @@ INDEX_TO_CHANNEL = {v: k for k, v in CHANNEL_INDEX.items()}
 def get_api_key(channel_name):
     """
     Get YouTube API key for a specific channel.
-    
-    Looks for env var: YOUTUBE_API_KEY_{index}
-    Falls back to YOUTUBE_API_KEY if channel-specific not found.
+    STRICT isolation: only returns YOUTUBE_API_KEY_{index} for this channel.
+    NO fallback to other channels' keys.
     """
     idx = CHANNEL_INDEX.get(channel_name, 1)
     
-    # Try channel-specific key first
     key = os.environ.get(f"YOUTUBE_API_KEY_{idx}", "")
     if key:
         return key
     
-    # Fallback to generic key
-    key = os.environ.get("YOUTUBE_API_KEY", "")
-    if key:
-        logger.warning(f"Using generic YOUTUBE_API_KEY for channel {channel_name}")
-        return key
-    
     raise ValueError(
-        f"No API key found for channel {channel_name}. "
+        f"No API key found for channel {channel_name} (idx={idx}). "
         f"Set YOUTUBE_API_KEY_{idx} in GitHub Secrets."
     )
 
@@ -50,9 +42,7 @@ def get_api_key(channel_name):
 def get_client_secret(channel_name):
     """
     Get OAuth2 client secret JSON for a specific channel.
-    
-    Looks for env var: YOUTUBE_CLIENT_SECRET_{index}
-    Falls back to YOUTUBE_CLIENT_SECRET if channel-specific not found.
+    STRICT isolation: only returns YOUTUBE_CLIENT_SECRET_{index}.
     """
     idx = CHANNEL_INDEX.get(channel_name, 1)
     
@@ -60,13 +50,8 @@ def get_client_secret(channel_name):
     if secret:
         return secret
     
-    secret = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
-    if secret:
-        logger.warning(f"Using generic YOUTUBE_CLIENT_SECRET for channel {channel_name}")
-        return secret
-    
     raise ValueError(
-        f"No client secret found for channel {channel_name}. "
+        f"No client secret found for channel {channel_name} (idx={idx}). "
         f"Set YOUTUBE_CLIENT_SECRET_{idx} in GitHub Secrets."
     )
 
@@ -74,9 +59,7 @@ def get_client_secret(channel_name):
 def get_refresh_token(channel_name):
     """
     Get OAuth2 refresh token for a specific channel.
-    
-    Looks for env var: YOUTUBE_REFRESH_TOKEN_{index}
-    Falls back to YOUTUBE_REFRESH_TOKEN if channel-specific not found.
+    STRICT isolation: only returns YOUTUBE_REFRESH_TOKEN_{index}.
     """
     idx = CHANNEL_INDEX.get(channel_name, 1)
     
@@ -84,13 +67,8 @@ def get_refresh_token(channel_name):
     if token:
         return token
     
-    token = os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
-    if token:
-        logger.warning(f"Using generic YOUTUBE_REFRESH_TOKEN for channel {channel_name}")
-        return token
-    
     raise ValueError(
-        f"No refresh token found for channel {channel_name}. "
+        f"No refresh token found for channel {channel_name} (idx={idx}). "
         f"Set YOUTUBE_REFRESH_TOKEN_{idx} in GitHub Secrets."
     )
 
@@ -162,9 +140,7 @@ def get_analytics_service_for_channel(channel_name):
 def get_gemini_api_key(channel_name):
     """
     Get Gemini API key for a specific channel.
-    
-    Looks for env var: GEMINI_API_KEY_{index}
-    Falls back to GEMINI_API_KEY if channel-specific not found.
+    STRICT isolation: only returns GEMINI_API_KEY_{index}.
     """
     idx = CHANNEL_INDEX.get(channel_name, 1)
     
@@ -172,13 +148,8 @@ def get_gemini_api_key(channel_name):
     if key:
         return key
     
-    key = os.environ.get("GEMINI_API_KEY", "")
-    if key:
-        logger.warning(f"Using generic GEMINI_API_KEY for channel {channel_name}")
-        return key
-    
     raise ValueError(
-        f"No Gemini API key found for channel {channel_name}. "
+        f"No Gemini API key found for channel {channel_name} (idx={idx}). "
         f"Set GEMINI_API_KEY_{idx} in GitHub Secrets."
     )
 

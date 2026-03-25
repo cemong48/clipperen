@@ -44,21 +44,16 @@ NICHE_KEYWORDS = {
 
 
 def _get_api_key_for_context(channel_name=None):
-    """Get an API key, preferring the channel-specific one."""
+    """Get the API key for a specific channel. NO cross-channel fallback."""
     if channel_name:
         try:
             return get_api_key(channel_name)
         except ValueError:
-            pass
+            logger.error(f"No YouTube API key found for channel '{channel_name}' — skipping")
+            return ""
     
-    # Fallback: try any available key (1 through 5)
-    for i in range(1, 6):
-        key = os.environ.get(f"YOUTUBE_API_KEY_{i}", "")
-        if key:
-            return key
-    
-    # Last resort
-    return os.environ.get("YOUTUBE_API_KEY", "")
+    logger.error("No channel_name provided to _get_api_key_for_context — cannot determine API key")
+    return ""
 
 
 def youtube_search_videos(keyword, max_results=10, published_after=None, channel_name=None):

@@ -14,32 +14,32 @@ logger = logging.getLogger("clipper.content.transcript")
 
 TEMP_DIR = "temp"
 
-# Global cookies path — set by pipeline based on current channel index
+# Global state — set by pipeline based on current channel index
+# STRICT isolation: each channel uses ONLY its own cookies and CF Worker
 _current_cookies_path = None
+_current_channel_idx = 1
 
 
 def set_cookies_for_channel(channel_index):
-    """Set the cookies file path for the current channel (1-5)."""
-    global _current_cookies_path
+    """Set the cookies file path AND channel index for the current channel (1-5).
+    This controls which CF Worker, cookies, and API keys are used.
+    """
+    global _current_cookies_path, _current_channel_idx
+    _current_channel_idx = channel_index
     path = os.path.join(TEMP_DIR, f"cookies_{channel_index}.txt")
     if os.path.exists(path):
         _current_cookies_path = path
-        logger.info(f"Cookies set for channel #{channel_index}: {path}")
+        logger.info(f"Channel #{channel_index}: cookies OK ({path})")
     else:
         _current_cookies_path = None
-        logger.info(f"No cookies file for channel #{channel_index}")
+        logger.info(f"Channel #{channel_index}: no cookies file")
 
 
 def _get_cookies_path():
-    """Get current cookies path, or try any available."""
+    """Get current channel's cookies path. NO cross-channel fallback."""
     global _current_cookies_path
     if _current_cookies_path and os.path.exists(_current_cookies_path):
         return _current_cookies_path
-    # Try any available cookies file
-    for i in range(1, 6):
-        path = os.path.join(TEMP_DIR, f"cookies_{i}.txt")
-        if os.path.exists(path):
-            return path
     return None
 
 
@@ -661,23 +661,19 @@ def extract_audio(video_path, output_path=None):
 
 
 def _get_cf_worker_config():
-    """Get Cloudflare Worker URL and auth key for current channel."""
-    global _current_cookies_path
-    # Determine channel index from cookies path
-    idx = 1
-    if _current_cookies_path:
-        try:
-            idx = int(_current_cookies_path.split("cookies_")[1].split(".")[0])
-        except (IndexError, ValueError):
-            pass
+    """Get Cloudflare Worker URL and auth key for current channel.
+    STRICT isolation: uses only CF_WORKER_URL_{idx} and CF_WORKER_AUTH_KEY_{idx}.
+    """
+    global _current_channel_idx
+    idx = _current_channel_idx
     
     url = os.environ.get(f"CF_WORKER_URL_{idx}", "")
     key = os.environ.get(f"CF_WORKER_AUTH_KEY_{idx}", "")
     
-    if not url or not key:
-        # Try without index
-        url = os.environ.get("CF_WORKER_URL", "")
-        key = os.environ.get("CF_WORKER_AUTH_KEY", "")
+    if not url:
+        logger.info(f"CF Worker: CF_WORKER_URL_{idx} not set")
+    if not key:
+        logger.info(f"CF Worker: CF_WORKER_AUTH_KEY_{idx} not set")
     
     return url, key
 
