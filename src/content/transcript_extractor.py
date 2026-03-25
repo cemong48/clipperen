@@ -689,7 +689,10 @@ def _get_cf_worker_config():
 def extract_transcript_cf_worker(video_id):
     """
     Extract transcript via Cloudflare Worker proxy.
-    Most reliable method from CI — Cloudflare IPs are not blocked by YouTube.
+    
+    The CF Worker scrapes YouTube's watch page from Cloudflare's clean IPs
+    and extracts captions. Cookies are forwarded from the pipeline to
+    authenticate the request and bypass YouTube's bot detection (429/LOGIN_REQUIRED).
     
     Returns transcript text string, or None if unavailable.
     """
@@ -700,10 +703,24 @@ def extract_transcript_cf_worker(video_id):
     
     logger.info(f"CF Worker: calling proxy for {video_id}...")
     
+    # Read cookies and convert to Cookie header format for the CF Worker
+    cookie_str = ""
+    cookies_path = _get_cookies_path()
+    if cookies_path:
+        try:
+            jar = MozillaCookieJar(cookies_path)
+            jar.load(ignore_discard=True, ignore_expires=True)
+            # Convert to "name=value; name2=value2" format
+            cookie_parts = [f"{c.name}={c.value}" for c in jar]
+            cookie_str = "; ".join(cookie_parts)
+            logger.info(f"CF Worker: forwarding {len(cookie_parts)} cookies")
+        except Exception as e:
+            logger.info(f"CF Worker: could not load cookies: {e}")
+    
     try:
         resp = requests.post(
             url,
-            json={"action": "transcript", "video_id": video_id},
+            json={"action": "transcript", "video_id": video_id, "cookies": cookie_str},
             headers={
                 "Content-Type": "application/json",
                 "X-Auth-Key": auth_key
@@ -762,11 +779,11 @@ def get_transcript(video_url, video_path=None):
     """
     Main entry point: get transcript for a video.
     
-    Priority order (2026 — innertube /player API is dead):
-    1. youtube-transcript-api + cookies (bypasses CI bot detection)
-    2. Cloudflare Worker proxy (clean IPs, needs re-deploy with new worker.js)
-    3. yt-dlp subtitles with cookies (bypasses bot detection)
-    4. Direct innertube API (mostly dead, kept as hail-mary)
+    Priority order (2026):
+    1. CF Worker + cookies (clean Cloudflare IPs + authenticated cookies)
+    2. youtube-transcript-api + cookies (scrapes watch page, may be blocked from CI)
+    3. yt-dlp subtitles with cookies
+    4. Direct innertube API (mostly dead, hail-mary)
     5. Whisper local transcription (last resort, needs audio file)
     
     Returns:
@@ -778,17 +795,17 @@ def get_transcript(video_url, video_path=None):
         logger.error(f"Could not extract video ID from: {video_url}")
         return {"text": "", "source": "none", "segments": None}
     
-    # Method 1: youtube-transcript-api (MOST RELIABLE as of 2026)
-    logger.info(f"Transcript [{video_id}]: trying youtube-transcript-api...")
-    text = extract_transcript_api(video_id)
-    if text and len(text) >= 50:
-        return {"text": text, "source": "youtube_transcript_api", "segments": None}
-    
-    # Method 2: Cloudflare Worker proxy
+    # Method 1: CF Worker + cookies (clean IPs + auth = best chance)
     logger.info(f"Transcript [{video_id}]: trying CF Worker proxy...")
     text = extract_transcript_cf_worker(video_id)
     if text and len(text) >= 50:
         return {"text": text, "source": "cf_worker", "segments": None}
+    
+    # Method 2: youtube-transcript-api + cookies
+    logger.info(f"Transcript [{video_id}]: trying youtube-transcript-api...")
+    text = extract_transcript_api(video_id)
+    if text and len(text) >= 50:
+        return {"text": text, "source": "youtube_transcript_api", "segments": None}
     
     # Method 3: yt-dlp subtitles with cookies
     logger.info(f"Transcript [{video_id}]: trying yt-dlp...")

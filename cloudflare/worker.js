@@ -1,14 +1,12 @@
 // Cloudflare Worker: YouTube Transcript Proxy
 // Deploy 1 worker per channel/account
-// Scrapes YouTube watch page for caption URLs and downloads them
-// (innertube /player API is dead as of 2025-2026)
+// Scrapes YouTube watch page WITH COOKIES for caption URLs
 //
 // Environment Variables (set in CF Worker Settings):
 //   AUTH_KEY = your CF_WORKER_AUTH_KEY_x value
 
 export default {
   async fetch(request, env) {
-    // CORS headers
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -19,155 +17,159 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // Auth check
     const authKey = request.headers.get("X-Auth-Key");
     if (!authKey || authKey !== env.AUTH_KEY) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return Response.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
     }
 
     if (request.method !== "POST") {
-      return new Response(JSON.stringify({ error: "Method not allowed" }), {
-        status: 405,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return Response.json({ error: "Method not allowed" }, { status: 405, headers: corsHeaders });
     }
 
     try {
       const body = await request.json();
-      const { action, video_id } = body;
+      const { action, video_id, cookies } = body;
 
       if (action === "transcript") {
-        return await getTranscript(video_id, corsHeaders);
+        return await getTranscript(video_id, cookies || "", corsHeaders);
       } else if (action === "playability") {
         return await checkPlayability(video_id, corsHeaders);
       } else {
-        return new Response(
-          JSON.stringify({ error: "Invalid action. Use: transcript, playability" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        return Response.json(
+          { error: "Invalid action. Use: transcript, playability" },
+          { status: 400, headers: corsHeaders }
         );
       }
     } catch (e) {
-      return new Response(
-        JSON.stringify({ error: e.message }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return Response.json({ error: e.message }, { status: 500, headers: corsHeaders });
     }
   },
 };
 
-// ─── Transcript Extraction via Watch Page Scraping ──────────────────
 
-async function getTranscript(videoId, corsHeaders) {
+// ─── Transcript Extraction ──────────────────────────────────────────
+
+async function getTranscript(videoId, cookieStr, corsHeaders) {
   const errors = [];
 
-  // Method 1: Scrape the YouTube watch page for caption track URLs
-  // This is how youtube-transcript-api v1.x works — parse the HTML for ytInitialPlayerResponse
+  // Method 1: Scrape YouTube watch page WITH cookies
+  // Cookies authenticate the request so YouTube doesn't return 429/bot detection
   try {
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const watchResp = await fetch(watchUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-    });
+    const headers = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Ch-Ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": '"Windows"',
+    };
+
+    // Add cookies if provided
+    if (cookieStr) {
+      headers["Cookie"] = cookieStr;
+    }
+
+    const watchResp = await fetch(watchUrl, { headers, redirect: "follow" });
 
     if (!watchResp.ok) {
       errors.push(`watch_page: HTTP ${watchResp.status}`);
     } else {
       const html = await watchResp.text();
 
-      // Extract ytInitialPlayerResponse from the page HTML
-      const playerRespMatch = html.match(/var ytInitialPlayerResponse\s*=\s*(\{.+?\});/s);
-      if (!playerRespMatch) {
-        // Try alternative pattern
-        const altMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/s);
-        if (!altMatch) {
-          errors.push("watch_page: ytInitialPlayerResponse not found in HTML");
+      // Extract ytInitialPlayerResponse from page HTML
+      let playerJson = null;
+
+      // Pattern 1: var ytInitialPlayerResponse = {...};
+      const m1 = html.match(/var\s+ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;\s*var/s);
+      if (m1) {
+        playerJson = m1[1];
+      }
+
+      // Pattern 2: ytInitialPlayerResponse = {...}; (without var)
+      if (!playerJson) {
+        const m2 = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;/s);
+        if (m2) {
+          playerJson = m2[1];
+        }
+      }
+
+      if (!playerJson) {
+        // Check if we got a consent/bot page instead
+        if (html.includes("confirm you") || html.includes("captcha") || html.includes("consent")) {
+          errors.push("watch_page: got consent/captcha page (cookies may be invalid)");
         } else {
-          const result = await extractCaptionsFromPlayerResponse(altMatch[1], videoId, corsHeaders);
-          if (result) return result;
-          errors.push("watch_page(alt): no captions extracted");
+          errors.push("watch_page: ytInitialPlayerResponse not found in HTML");
         }
       } else {
-        const result = await extractCaptionsFromPlayerResponse(playerRespMatch[1], videoId, corsHeaders);
+        const result = await extractCaptionsFromPlayerResponse(playerJson, videoId, corsHeaders);
         if (result) return result;
-        errors.push("watch_page: no captions extracted");
+        errors.push("watch_page: no usable captions in player response");
       }
     }
   } catch (e) {
     errors.push(`watch_page: ${e.message}`);
   }
 
-  // Method 2: Try innertube /player API as fallback (may work from CF IPs)
-  const clients = [
-    {
-      name: "WEB",
-      payload: {
-        context: {
-          client: { clientName: "WEB", clientVersion: "2.20250325.00.00", hl: "en", gl: "US" },
-        },
-        videoId,
-        contentCheckOk: true,
-        racyCheckOk: true,
-      },
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "Origin": "https://www.youtube.com",
-        "Referer": "https://www.youtube.com/",
-      },
-    },
-  ];
+  // Method 2: Try YouTube oEmbed + timedtext (no auth needed, limited)
+  try {
+    // First check if video exists via oEmbed
+    const oembedResp = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
+      { headers: { "User-Agent": "Mozilla/5.0" } }
+    );
+    if (oembedResp.ok) {
+      // Video exists, try direct caption URL patterns
+      // Some videos have publicly accessible caption tracks
+      const captionUrls = [
+        `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`,
+        `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&kind=asr&fmt=json3`,
+      ];
 
-  for (const client of clients) {
-    try {
-      const resp = await fetch(
-        "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8&prettyPrint=false",
-        {
-          method: "POST",
-          headers: client.headers,
-          body: JSON.stringify(client.payload),
+      for (const capUrl of captionUrls) {
+        try {
+          const capHeaders = { "User-Agent": "Mozilla/5.0" };
+          if (cookieStr) capHeaders["Cookie"] = cookieStr;
+          
+          const capResp = await fetch(capUrl, { headers: capHeaders });
+          if (capResp.ok) {
+            const text = await capResp.text();
+            if (text && text.length > 50) {
+              try {
+                const capData = JSON.parse(text);
+                const transcript = parseJson3Captions(capData);
+                if (transcript && transcript.length >= 50) {
+                  return Response.json(
+                    { success: true, text: transcript, source: "cf_worker_timedtext", chars: transcript.length },
+                    { headers: corsHeaders }
+                  );
+                }
+              } catch (e) {
+                // Not JSON, skip
+              }
+            }
+          }
+        } catch (e) {
+          // Ignore individual caption URL failures
         }
-      );
-
-      if (!resp.ok) {
-        errors.push(`${client.name}: HTTP ${resp.status}`);
-        continue;
       }
-
-      const data = await resp.json();
-      const status = data.playabilityStatus?.status;
-      if (status !== "OK") {
-        errors.push(`${client.name}: ${status} — ${data.playabilityStatus?.reason || "unknown"}`);
-        continue;
-      }
-
-      const tracks = data.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-      if (tracks.length === 0) {
-        errors.push(`${client.name}: no caption tracks`);
-        continue;
-      }
-
-      const result = await downloadCaptionTrack(tracks, client.headers, client.name, corsHeaders);
-      if (result) return result;
-      errors.push(`${client.name}: caption download failed`);
-    } catch (e) {
-      errors.push(`${client.name}: ${e.message}`);
+      errors.push("timedtext: no captions found via direct URLs");
     }
+  } catch (e) {
+    errors.push(`timedtext: ${e.message}`);
   }
 
-  return new Response(
-    JSON.stringify({ success: false, errors }),
-    { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+  return Response.json(
+    { success: false, errors },
+    { status: 404, headers: corsHeaders }
   );
 }
 
 
-// ─── Helper: Extract captions from ytInitialPlayerResponse JSON ────
+// ─── Helper: Extract captions from ytInitialPlayerResponse ──────────
 
 async function extractCaptionsFromPlayerResponse(jsonStr, videoId, corsHeaders) {
   try {
@@ -183,34 +185,49 @@ async function extractCaptionsFromPlayerResponse(jsonStr, videoId, corsHeaders) 
       return null;
     }
 
-    const headers = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    };
+    // Find best English track
+    let target =
+      tracks.find((t) => t.languageCode === "en" && t.kind !== "asr") ||
+      tracks.find((t) => t.languageCode === "en") ||
+      tracks[0];
 
-    return await downloadCaptionTrack(tracks, headers, "watch_page", corsHeaders);
+    if (!target?.baseUrl) return null;
+
+    const capUrl = target.baseUrl + (target.baseUrl.includes("?") ? "&fmt=json3" : "?fmt=json3");
+    const capResp = await fetch(capUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    });
+
+    if (!capResp.ok) return null;
+
+    const capData = await capResp.json();
+    const text = parseJson3Captions(capData);
+
+    if (text && text.length >= 50) {
+      return Response.json(
+        {
+          success: true,
+          text,
+          source: "cf_worker_watch_page",
+          language: target.languageCode,
+          chars: text.length,
+        },
+        { headers: corsHeaders }
+      );
+    }
+
+    return null;
   } catch (e) {
     return null;
   }
 }
 
 
-// ─── Helper: Download and parse caption track ──────────────────────
+// ─── Helper: Parse JSON3 captions format ────────────────────────────
 
-async function downloadCaptionTrack(tracks, headers, sourceName, corsHeaders) {
-  // Find English track (prefer manual, then auto, then any)
-  let target =
-    tracks.find((t) => t.languageCode === "en" && t.kind !== "asr") ||
-    tracks.find((t) => t.languageCode === "en") ||
-    tracks[0];
-
-  if (!target?.baseUrl) return null;
-
-  const capUrl = target.baseUrl + (target.baseUrl.includes("?") ? "&fmt=json3" : "?fmt=json3");
-  const capResp = await fetch(capUrl, { headers });
-
-  if (!capResp.ok) return null;
-
-  const capData = await capResp.json();
+function parseJson3Captions(capData) {
   const segments = [];
   for (const event of capData.events || []) {
     const parts = [];
@@ -220,60 +237,41 @@ async function downloadCaptionTrack(tracks, headers, sourceName, corsHeaders) {
     }
     if (parts.length) segments.push(parts.join(" "));
   }
-
-  const text = segments.join(" ");
-  if (text.length >= 50) {
-    return new Response(
-      JSON.stringify({
-        success: true,
-        text,
-        source: `cf_worker_${sourceName}`,
-        language: target.languageCode,
-        chars: text.length,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-
-  return null;
+  return segments.join(" ");
 }
 
 
-// ─── Playability Check ───────────────────────────────────────────────
+// ─── Playability Check ──────────────────────────────────────────────
 
 async function checkPlayability(videoId, corsHeaders) {
-  // Method 1: Check via watch page (more reliable than innertube)
   try {
     const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
     const resp = await fetch(oembedUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
+      headers: { "User-Agent": "Mozilla/5.0" },
     });
 
     if (resp.ok) {
-      return new Response(
-        JSON.stringify({ playable: true, status: "OK", reason: "" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      return Response.json(
+        { playable: true, status: "OK", reason: "" },
+        { headers: corsHeaders }
       );
     }
 
-    // 401 = embedding disabled but video exists, 404 = video doesn't exist
     if (resp.status === 401) {
-      return new Response(
-        JSON.stringify({ playable: true, status: "OK_NO_EMBED", reason: "Embedding disabled but video exists" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      return Response.json(
+        { playable: true, status: "OK_NO_EMBED", reason: "Embedding disabled but video exists" },
+        { headers: corsHeaders }
       );
     }
 
-    return new Response(
-      JSON.stringify({ playable: false, status: "NOT_FOUND", reason: `oembed HTTP ${resp.status}` }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    return Response.json(
+      { playable: false, status: "NOT_FOUND", reason: `oembed HTTP ${resp.status}` },
+      { headers: corsHeaders }
     );
   } catch (e) {
-    return new Response(
-      JSON.stringify({ playable: false, error: e.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    return Response.json(
+      { playable: false, error: e.message },
+      { status: 500, headers: corsHeaders }
     );
   }
 }
