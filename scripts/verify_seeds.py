@@ -7,17 +7,20 @@ import os
 import time
 import requests
 
-# Use per-channel key — try each one (this utility runs once, not per-channel loop)
-YOUTUBE_API_KEY = ""
-for _i in range(1, 6):
-    YOUTUBE_API_KEY = os.environ.get(f"YOUTUBE_API_KEY_{_i}", "")
-    if YOUTUBE_API_KEY:
-        break
 SEEDS_PATH = "config/seeds.json"
 REPORT_PATH = "logs/seed_verification_report.json"
 
 
-def verify_channel_id(channel_id, channel_name):
+def _get_youtube_api_key():
+    """Get first available YouTube API key (indexed 1-5)."""
+    for i in range(1, 6):
+        key = os.environ.get(f"YOUTUBE_API_KEY_{i}", "")
+        if key:
+            return key
+    return ""
+
+
+def verify_channel_id(channel_id, channel_name, api_key):
     """
     Check if a channel_id is valid via YouTube Data API.
     Returns dict with status and corrected ID if found.
@@ -26,7 +29,7 @@ def verify_channel_id(channel_id, channel_name):
     params = {
         "part": "snippet,status",
         "id": channel_id,
-        "key": YOUTUBE_API_KEY
+        "key": api_key
     }
 
     try:
@@ -51,11 +54,10 @@ def verify_channel_id(channel_id, channel_name):
             "name_match": actual_name.lower() == channel_name.lower()
         }
     else:
-        # ID invalid — try lookup by handle/search
-        return lookup_by_search(channel_id, channel_name)
+        return lookup_by_search(channel_id, channel_name, api_key)
 
 
-def lookup_by_search(original_id, channel_name):
+def lookup_by_search(original_id, channel_name, api_key):
     """
     Fallback: search YouTube for the channel by name
     and attempt to recover the correct ID.
@@ -66,7 +68,7 @@ def lookup_by_search(original_id, channel_name):
         "q": channel_name,
         "type": "channel",
         "maxResults": 3,
-        "key": YOUTUBE_API_KEY
+        "key": api_key
     }
 
     try:
@@ -89,7 +91,6 @@ def lookup_by_search(original_id, channel_name):
             "reason": "No search results found"
         }
 
-    # Return best candidate (first result)
     best = items[0]
     recovered_id = best["snippet"]["channelId"]
     recovered_name = best["snippet"]["channelTitle"]
@@ -108,7 +109,6 @@ def auto_patch_seeds(results):
     """
     Automatically update seeds.json with recovered IDs.
     Only patches entries with status = "recovered".
-    Leaves "unresolvable" entries unchanged for manual fix.
     """
     with open(SEEDS_PATH, encoding="utf-8") as f:
         seeds = json.load(f)
@@ -134,9 +134,11 @@ def auto_patch_seeds(results):
 
 
 def run_verification():
-    if not YOUTUBE_API_KEY:
-        print("❌ ERROR: YOUTUBE_API_KEY not set.")
-        print("   Set it: export YOUTUBE_API_KEY='your_key_here'")
+    """Main verification logic."""
+    api_key = _get_youtube_api_key()
+    if not api_key:
+        print("❌ ERROR: No YouTube API key found.")
+        print("   Set YOUTUBE_API_KEY_1 through _5 in environment.")
         exit(1)
 
     with open(SEEDS_PATH, encoding="utf-8") as f:
@@ -161,7 +163,7 @@ def run_verification():
 
     for i, ch in enumerate(all_channels, 1):
         print(f"[{i:2d}/25] {ch['name']:<35}", end=" ")
-        result = verify_channel_id(ch["channel_id"], ch["name"])
+        result = verify_channel_id(ch["channel_id"], ch["name"], api_key)
         result["theme"] = ch["theme"]
         results.append(result)
 
@@ -206,7 +208,6 @@ def run_verification():
 
     print(f"\n📄 Full report saved to: {REPORT_PATH}")
 
-    # Exit with error code if any unresolvable — blocks pipeline from running
     if unresolvable > 0:
         print(f"\n⚠️  ACTION REQUIRED: {unresolvable} channel(s) could not be resolved.")
         print("   Edit config/seeds.json manually to fix or remove them.")
