@@ -210,121 +210,80 @@ def extract_transcript_captions_api(video_id):
 
 def extract_transcript_api(video_id):
     """
-    Method 2: Use youtube-transcript-api to fetch transcript text.
+    Method using youtube-transcript-api library (v1.2.4+).
     
-    Supports both v0.6.x and v1.x API styles.
-    May fail in CI environments due to YouTube IP blocking.
+    This is the MOST RELIABLE method as of 2026 — the library handles
+    YouTube's anti-bot detection internally via watch page scraping.
+    
+    v1.2.4 API: YouTubeTranscriptApi() instance → .fetch() or .list()
+    (NOT the old v0.6.x class methods like .get_transcript())
     
     Returns transcript text string, or None if unavailable.
     """
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         
-        # Try the v1.x API style first (newer)
+        ytt = YouTubeTranscriptApi()
+        
+        # Try direct fetch first (fastest)
         try:
-            # v1.x: YouTubeTranscriptApi.get(video_id)
-            fetched = YouTubeTranscriptApi.get(video_id)
-            if fetched:
-                # v1.x returns FetchedTranscript object(s)
-                if hasattr(fetched, 'snippets'):
-                    text = " ".join([s.text for s in fetched.snippets])
-                elif hasattr(fetched, '__iter__'):
-                    parts = []
-                    for entry in fetched:
-                        if hasattr(entry, 'text'):
-                            parts.append(entry.text)
-                        elif isinstance(entry, dict):
-                            parts.append(entry.get("text", ""))
-                    text = " ".join(parts)
-                else:
-                    text = str(fetched)
-                
+            result = ytt.fetch(video_id)
+            if hasattr(result, 'snippets') and result.snippets:
+                text = " ".join([s.text for s in result.snippets])
                 if text and len(text) >= 50:
-                    logger.info(f"Got transcript via API .get() for {video_id} ({len(text)} chars)")
+                    logger.info(f"Got transcript via youtube-transcript-api.fetch() for {video_id} ({len(text)} chars)")
                     return text
-        except TypeError:
-            pass  # v1.x .get() might not exist or different signature
-        except AttributeError:
-            pass  # Different API version
         except Exception as e:
-            logger.debug(f"v1.x API style failed for {video_id}: {type(e).__name__}: {e}")
+            logger.info(f"youtube-transcript-api fetch() failed for {video_id}: {type(e).__name__}: {str(e)[:100]}")
         
-        # Try the v0.6.x API style (older but more common)
+        # Try listing available transcripts and fetching the best one
         try:
-            # v0.6.x: YouTubeTranscriptApi.get_transcript(video_id)
-            entries = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
-            text = " ".join([entry.get("text", "") if isinstance(entry, dict) 
-                           else entry.text if hasattr(entry, 'text') else str(entry)
-                           for entry in entries])
-            if text and len(text) >= 50:
-                logger.info(f"Got transcript via get_transcript(en) for {video_id} ({len(text)} chars)")
-                return text
-        except Exception as e:
-            logger.debug(f"get_transcript(en) failed for {video_id}: {type(e).__name__}: {e}")
-        
-        # Try without language filter (get any available language)
-        try:
-            entries = YouTubeTranscriptApi.get_transcript(video_id)
-            text = " ".join([entry.get("text", "") if isinstance(entry, dict)
-                           else entry.text if hasattr(entry, 'text') else str(entry)
-                           for entry in entries])
-            if text and len(text) >= 50:
-                logger.info(f"Got transcript via get_transcript(any) for {video_id} ({len(text)} chars)")
-                return text
-        except Exception as e:
-            logger.debug(f"get_transcript(any) failed for {video_id}: {type(e).__name__}: {e}")
-        
-        # Try listing transcripts and fetching the best one
-        try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript_list = ytt.list(video_id)
             
             # Try manual English first
             for transcript in transcript_list:
                 if not transcript.is_generated and transcript.language_code == 'en':
-                    entries = transcript.fetch()
-                    text = " ".join([e.get("text", "") if isinstance(e, dict)
-                                   else e.text if hasattr(e, 'text') else str(e)
-                                   for e in entries])
-                    if text and len(text) >= 50:
-                        logger.info(f"Got manual English transcript for {video_id}")
-                        return text
+                    fetched = transcript.fetch()
+                    if hasattr(fetched, 'snippets') and fetched.snippets:
+                        text = " ".join([s.text for s in fetched.snippets])
+                        if text and len(text) >= 50:
+                            logger.info(f"Got manual English transcript for {video_id} ({len(text)} chars)")
+                            return text
             
             # Try auto-generated English
             for transcript in transcript_list:
                 if transcript.is_generated and transcript.language_code == 'en':
-                    entries = transcript.fetch()
-                    text = " ".join([e.get("text", "") if isinstance(e, dict)
-                                   else e.text if hasattr(e, 'text') else str(e)
-                                   for e in entries])
-                    if text and len(text) >= 50:
-                        logger.info(f"Got auto-generated English transcript for {video_id}")
-                        return text
+                    fetched = transcript.fetch()
+                    if hasattr(fetched, 'snippets') and fetched.snippets:
+                        text = " ".join([s.text for s in fetched.snippets])
+                        if text and len(text) >= 50:
+                            logger.info(f"Got auto-generated English transcript for {video_id} ({len(text)} chars)")
+                            return text
             
-            # Try any language and translate
+            # Try any language and translate to English
             for transcript in transcript_list:
                 try:
                     translated = transcript.translate('en')
-                    entries = translated.fetch()
-                    text = " ".join([e.get("text", "") if isinstance(e, dict)
-                                   else e.text if hasattr(e, 'text') else str(e)
-                                   for e in entries])
-                    if text and len(text) >= 50:
-                        logger.info(f"Got translated transcript for {video_id} (from {transcript.language_code})")
-                        return text
+                    fetched = translated.fetch()
+                    if hasattr(fetched, 'snippets') and fetched.snippets:
+                        text = " ".join([s.text for s in fetched.snippets])
+                        if text and len(text) >= 50:
+                            logger.info(f"Got translated transcript for {video_id} (from {transcript.language_code}, {len(text)} chars)")
+                            return text
                 except Exception:
                     continue
                     
         except Exception as e:
-            logger.debug(f"list_transcripts failed for {video_id}: {type(e).__name__}: {e}")
+            logger.info(f"youtube-transcript-api list() failed for {video_id}: {type(e).__name__}: {str(e)[:100]}")
         
-        logger.info(f"No transcript available via API for {video_id}")
+        logger.info(f"No transcript available via youtube-transcript-api for {video_id}")
         return None
         
     except ImportError:
-        logger.warning("youtube-transcript-api not installed. Install: pip install youtube-transcript-api")
+        logger.warning("youtube-transcript-api not installed. Install: pip install youtube-transcript-api>=1.0.0")
         return None
     except Exception as e:
-        logger.error(f"Transcript API error for {video_id}: {type(e).__name__}: {e}")
+        logger.error(f"youtube-transcript-api error for {video_id}: {type(e).__name__}: {str(e)[:100]}")
         return None
 
 
@@ -781,11 +740,11 @@ def get_transcript(video_url, video_path=None):
     """
     Main entry point: get transcript for a video.
     
-    Priority order (optimized for GitHub Actions CI):
-    1. Cloudflare Worker proxy (most reliable — CF IPs not blocked)
-    2. Direct innertube API (no library needed)
-    3. youtube-transcript-api library (may be blocked from CI IPs)
-    4. yt-dlp subtitles with cookies (bypasses bot detection)
+    Priority order (2026 — innertube /player API is dead):
+    1. youtube-transcript-api library (MOST RELIABLE — scrapes watch page)
+    2. Cloudflare Worker proxy (if deployed, uses watch page scraping)
+    3. yt-dlp subtitles with cookies (bypasses bot detection)
+    4. Direct innertube API (mostly dead, kept as hail-mary)
     5. Whisper local transcription (last resort, needs audio file)
     
     Returns:
@@ -797,32 +756,30 @@ def get_transcript(video_url, video_path=None):
         logger.error(f"Could not extract video ID from: {video_url}")
         return {"text": "", "source": "none", "segments": None}
     
-    # Method 1: Cloudflare Worker proxy (most reliable in CI)
+    # Method 1: youtube-transcript-api (MOST RELIABLE as of 2026)
+    logger.info(f"Transcript [{video_id}]: trying youtube-transcript-api...")
+    text = extract_transcript_api(video_id)
+    if text and len(text) >= 50:
+        return {"text": text, "source": "youtube_transcript_api", "segments": None}
+    
+    # Method 2: Cloudflare Worker proxy
     logger.info(f"Transcript [{video_id}]: trying CF Worker proxy...")
     text = extract_transcript_cf_worker(video_id)
     if text and len(text) >= 50:
         return {"text": text, "source": "cf_worker", "segments": None}
     
-    # Method 2: Direct innertube API
-    logger.info(f"Transcript [{video_id}]: trying innertube (ANDROID/WEB_EMBEDDED/WEB)...")
-    text = extract_transcript_innertube(video_id)
-    if text and len(text) >= 50:
-        return {"text": text, "source": "innertube", "segments": None}
-    logger.info(f"Transcript [{video_id}]: innertube failed")
-    
-    # Method 3: youtube-transcript-api library
-    logger.info(f"Transcript [{video_id}]: trying youtube-transcript-api...")
-    text = extract_transcript_api(video_id)
-    if text and len(text) >= 50:
-        return {"text": text, "source": "youtube_transcript_api", "segments": None}
-    logger.info(f"Transcript [{video_id}]: youtube-transcript-api failed")
-    
-    # Method 4: yt-dlp subtitles with cookies
+    # Method 3: yt-dlp subtitles with cookies
     logger.info(f"Transcript [{video_id}]: trying yt-dlp...")
     text = extract_transcript_ytdlp(video_url)
     if text and len(text) >= 50:
         return {"text": text, "source": "youtube_subs", "segments": None}
     logger.info(f"Transcript [{video_id}]: yt-dlp failed")
+    
+    # Method 4: Direct innertube API (mostly dead as of 2026, kept as fallback)
+    logger.info(f"Transcript [{video_id}]: trying innertube (last resort)...")
+    text = extract_transcript_innertube(video_id)
+    if text and len(text) >= 50:
+        return {"text": text, "source": "innertube", "segments": None}
     
     # Method 5: Whisper (last resort — needs downloaded audio)
     if video_path and os.path.exists(video_path):
