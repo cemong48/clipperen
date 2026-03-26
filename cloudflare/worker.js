@@ -1,8 +1,6 @@
 // Cloudflare Worker: YouTube Transcript Proxy
-// Replicates EXACT method used by youtube-transcript-api v1.2.4:
-// 1. Fetch watch page → extract INNERTUBE_API_KEY
-// 2. Call innertube /player with ANDROID client + extracted key
-// 3. Download captions from the response URLs
+// Strategy: Call innertube ANDROID API DIRECTLY with hardcoded key
+// (no watch page needed — avoids 429 on watch page from datacenter IPs)
 //
 // Environment Variables:
 //   AUTH_KEY = your CF_WORKER_AUTH_KEY_x value
@@ -49,13 +47,95 @@ export default {
 };
 
 
-// ─── Transcript Extraction (replicates youtube-transcript-api) ──────
+// ─── Transcript Extraction ──────────────────────────────────────────
+// Priority order:
+//   1. Innertube ANDROID API (direct, no watch page needed)
+//   2. Watch page scraping (fallback, may 429 from datacenter IPs)
+
+// Well-known public innertube API key — used by all YouTube clients
+const INNERTUBE_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 
 async function getTranscript(videoId, cookieStr, corsHeaders) {
   const errors = [];
 
+  // ─── METHOD 1: Innertube ANDROID API (direct call, no watch page) ───
+  // This is the most reliable method from datacenter IPs because it
+  // doesn't hit the watch page (which returns 429 from CF Worker IPs).
   try {
-    // ── Step 1: Fetch watch page HTML ───────────────────────────
+    const innertubeUrl = `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_API_KEY}`;
+    const innertubePayload = {
+      context: {
+        client: {
+          clientName: "ANDROID",
+          clientVersion: "20.10.38",
+        },
+      },
+      videoId: videoId,
+    };
+
+    const innerResp = await fetch(innertubeUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 13)",
+      },
+      body: JSON.stringify(innertubePayload),
+    });
+
+    if (innerResp.ok) {
+      const innerData = await innerResp.json();
+      const result = await extractCaptionsFromPlayerData(innerData, videoId, corsHeaders, "innertube_android");
+      if (result) return result;
+
+      const status = innerData.playabilityStatus?.status || "?";
+      const reason = innerData.playabilityStatus?.reason || "";
+      errors.push(`innertube_android: ${status} ${reason}`.trim());
+    } else {
+      errors.push(`innertube_android: HTTP ${innerResp.status}`);
+    }
+  } catch (e) {
+    errors.push(`innertube_android: ${e.message}`);
+  }
+
+  // ─── METHOD 2: Innertube WEB client ─────────────────────────────────
+  try {
+    const innertubeUrl = `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_API_KEY}`;
+    const webPayload = {
+      context: {
+        client: {
+          clientName: "WEB",
+          clientVersion: "2.20240313.05.00",
+        },
+      },
+      videoId: videoId,
+    };
+
+    const webResp = await fetch(innertubeUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      },
+      body: JSON.stringify(webPayload),
+    });
+
+    if (webResp.ok) {
+      const webData = await webResp.json();
+      const result = await extractCaptionsFromPlayerData(webData, videoId, corsHeaders, "innertube_web");
+      if (result) return result;
+
+      const status = webData.playabilityStatus?.status || "?";
+      const reason = webData.playabilityStatus?.reason || "";
+      errors.push(`innertube_web: ${status} ${reason}`.trim());
+    } else {
+      errors.push(`innertube_web: HTTP ${webResp.status}`);
+    }
+  } catch (e) {
+    errors.push(`innertube_web: ${e.message}`);
+  }
+
+  // ─── METHOD 3: Watch page scraping (fallback) ───────────────────────
+  try {
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const fetchHeaders = {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -67,85 +147,27 @@ async function getTranscript(videoId, cookieStr, corsHeaders) {
       fetchHeaders["Cookie"] = cookieStr;
     }
 
-    let html = "";
-    let watchResp = await fetch(watchUrl, { headers: fetchHeaders, redirect: "follow" });
+    const watchResp = await fetch(watchUrl, { headers: fetchHeaders, redirect: "follow" });
 
-    if (!watchResp.ok) {
-      errors.push(`watch_page: HTTP ${watchResp.status}`);
+    if (watchResp.ok) {
+      const html = await watchResp.text();
+
+      // Try to extract ytInitialPlayerResponse
+      const playerMatch = html.match(/var\s+ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;\s*var/s)
+        || html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;/s);
+
+      if (playerMatch) {
+        const result = await extractCaptionsFromPlayerData(JSON.parse(playerMatch[1]), videoId, corsHeaders, "watch_page");
+        if (result) return result;
+        errors.push("watch_page: no captions in ytInitialPlayerResponse");
+      } else {
+        errors.push("watch_page: ytInitialPlayerResponse not found");
+      }
     } else {
-      html = await watchResp.text();
-
-      // ── Step 2: Handle consent page ────────────────────────────
-      if (html.includes('action="https://consent.youtube.com/s"')) {
-        // Create consent cookie (SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnoBw)
-        const consentCookie = "SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnoBw";
-        const newCookies = cookieStr ? `${cookieStr}; ${consentCookie}` : consentCookie;
-        fetchHeaders["Cookie"] = newCookies;
-
-        watchResp = await fetch(watchUrl, { headers: fetchHeaders, redirect: "follow" });
-        if (watchResp.ok) {
-          html = await watchResp.text();
-        } else {
-          errors.push(`consent_retry: HTTP ${watchResp.status}`);
-        }
-      }
-
-      if (html) {
-        // ── Step 3: Extract INNERTUBE_API_KEY from HTML ────────────
-        const apiKeyMatch = html.match(/"INNERTUBE_API_KEY":\s*"([a-zA-Z0-9_-]+)"/);
-
-        if (!apiKeyMatch) {
-          errors.push("watch_page: INNERTUBE_API_KEY not found in HTML");
-
-          // Fallback: try to extract captions directly from ytInitialPlayerResponse
-          const playerMatch = html.match(/var\s+ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;\s*var/s)
-            || html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;/s);
-          if (playerMatch) {
-            const result = await extractCaptionsFromPlayerData(JSON.parse(playerMatch[1]), videoId, corsHeaders);
-            if (result) return result;
-            errors.push("fallback: no captions in ytInitialPlayerResponse");
-          }
-        } else {
-          const apiKey = apiKeyMatch[1];
-
-          // ── Step 4: Call innertube /player with ANDROID client ─────
-          // This is EXACTLY what youtube-transcript-api does
-          const innertubeUrl = `https://www.youtube.com/youtubei/v1/player?key=${apiKey}`;
-          const innertubePayload = {
-            context: {
-              client: {
-                clientName: "ANDROID",
-                clientVersion: "20.10.38",
-              },
-            },
-            videoId: videoId,
-          };
-
-          const innerResp = await fetch(innertubeUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            },
-            body: JSON.stringify(innertubePayload),
-          });
-
-          if (!innerResp.ok) {
-            errors.push(`innertube_android: HTTP ${innerResp.status}`);
-          } else {
-            const innerData = await innerResp.json();
-            const result = await extractCaptionsFromPlayerData(innerData, videoId, corsHeaders);
-            if (result) return result;
-
-            const status = innerData.playabilityStatus?.status || "?";
-            const reason = innerData.playabilityStatus?.reason || "";
-            errors.push(`innertube_android: ${status} — ${reason}`.trim());
-          }
-        }
-      }
+      errors.push(`watch_page: HTTP ${watchResp.status}`);
     }
   } catch (e) {
-    errors.push(`exception: ${e.message}`);
+    errors.push(`watch_page: ${e.message}`);
   }
 
   return Response.json(
@@ -157,7 +179,7 @@ async function getTranscript(videoId, cookieStr, corsHeaders) {
 
 // ─── Extract captions from player data and download transcript ──────
 
-async function extractCaptionsFromPlayerData(playerData, videoId, corsHeaders) {
+async function extractCaptionsFromPlayerData(playerData, videoId, corsHeaders, source) {
   const status = playerData.playabilityStatus?.status;
   if (status !== "OK") return null;
 
@@ -173,23 +195,21 @@ async function extractCaptionsFromPlayerData(playerData, videoId, corsHeaders) {
   if (!target?.baseUrl) return null;
 
   // Download the caption track
-  const capUrl = target.baseUrl;
-  const capResp = await fetch(capUrl, {
-    headers: { "User-Agent": "Mozilla/5.0" },
+  const capResp = await fetch(target.baseUrl, {
+    headers: { "User-Agent": "com.google.android.youtube/20.10.38" },
   });
 
   if (!capResp.ok) return null;
 
   const capXml = await capResp.text();
-
-  // Parse XML caption format
   const text = parseXmlCaptions(capXml);
+
   if (text && text.length >= 50) {
     return Response.json(
       {
         success: true,
         text,
-        source: "cf_worker_innertube_android",
+        source: `cf_worker_${source}`,
         language: target.languageCode,
         chars: text.length,
       },
@@ -201,11 +221,9 @@ async function extractCaptionsFromPlayerData(playerData, videoId, corsHeaders) {
 }
 
 
-// ─── Parse XML captions format ──────────────────────────────────────
+// ─── Parse XML captions ─────────────────────────────────────────────
 
 function parseXmlCaptions(xml) {
-  // Simple XML parser for YouTube captions
-  // Format: <transcript><text start="0" dur="1.5">Hello world</text>...</transcript>
   const segments = [];
   const regex = /<text[^>]*>([\s\S]*?)<\/text>/g;
   let match;
