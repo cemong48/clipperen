@@ -50,11 +50,12 @@ jobs:
             if [ -n "$ACCT_ID" ] && [ -n "$API_TOKEN" ]; then
               echo "Deploying worker #${i} (${WORKER_NAME})..."
               DEPLOY_URL="https://api.cloudflare.com/client/v4/accounts/${ACCT_ID}/workers/scripts/${WORKER_NAME}"
+              # Use multipart form upload for ES modules (export default syntax)
               HTTP_CODE=$(curl -s -o /tmp/cf_deploy_${i}.json -w "%{http_code}" \
                 -X PUT "$DEPLOY_URL" \
                 -H "Authorization: Bearer ${API_TOKEN}" \
-                -H "Content-Type: application/javascript" \
-                --data-binary @cloudflare/worker.js)
+                -F "worker.js=@cloudflare/worker.js;type=application/javascript+module" \
+                -F 'metadata={"main_module":"worker.js"};type=application/json')
               
               if [ "$HTTP_CODE" = "200" ]; then
                 echo "  Worker #${i}: DEPLOYED OK"
