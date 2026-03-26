@@ -39,15 +39,19 @@ jobs:
             ACCT_VAR="CF_ACCOUNT_ID_${i}"
             TOKEN_VAR="CF_API_TOKEN_${i}"
             NAME_VAR="CF_WORKER_NAME_${i}"
-            ACCT_ID="${!ACCT_VAR}"
-            API_TOKEN="${!TOKEN_VAR}"
-            WORKER_NAME="${!NAME_VAR:-yt-transcript-proxy}"
+            # Trim whitespace/newlines from secret values
+            ACCT_ID=$(echo "${!ACCT_VAR}" | tr -d '[:space:]')
+            API_TOKEN=$(echo "${!TOKEN_VAR}" | tr -d '[:space:]')
+            WORKER_NAME=$(echo "${!NAME_VAR}" | tr -d '[:space:]')
+            WORKER_NAME="${WORKER_NAME:-yt-transcript-proxy}"
+            
+            echo "Worker #${i}: ACCT_ID length=${#ACCT_ID}, TOKEN length=${#API_TOKEN}, name=${WORKER_NAME}"
             
             if [ -n "$ACCT_ID" ] && [ -n "$API_TOKEN" ]; then
               echo "Deploying worker #${i} (${WORKER_NAME})..."
+              DEPLOY_URL="https://api.cloudflare.com/client/v4/accounts/${ACCT_ID}/workers/scripts/${WORKER_NAME}"
               HTTP_CODE=$(curl -s -o /tmp/cf_deploy_${i}.json -w "%{http_code}" \
-                -X PUT \
-                "https://api.cloudflare.com/client/v4/accounts/${ACCT_ID}/workers/scripts/${WORKER_NAME}" \
+                -X PUT "$DEPLOY_URL" \
                 -H "Authorization: Bearer ${API_TOKEN}" \
                 -H "Content-Type: application/javascript" \
                 --data-binary @cloudflare/worker.js)
@@ -57,10 +61,10 @@ jobs:
                 DEPLOYED=$((DEPLOYED + 1))
               else
                 echo "  Worker #${i}: DEPLOY FAILED (HTTP ${HTTP_CODE})"
-                cat /tmp/cf_deploy_${i}.json 2>/dev/null | head -3
+                cat /tmp/cf_deploy_${i}.json 2>/dev/null
               fi
             else
-              echo "Worker #${i}: skipped (CF_ACCOUNT_ID_${i} or CF_API_TOKEN_${i} not set)"
+              echo "Worker #${i}: SKIPPED (ACCT_ID empty=${#ACCT_ID}, TOKEN empty=${#API_TOKEN})"
             fi
           done
           echo "Deployed ${DEPLOYED}/5 workers"
