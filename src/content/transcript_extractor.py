@@ -766,10 +766,10 @@ def extract_transcript_cf_worker(video_id):
                             timeout=15
                         )
                         if cap_resp.status_code == 200:
-                            # Parse XML captions
+                            # Parse XML captions — handle both format 1 (<text>) and format 3 (<p>)
                             import re
                             segments = []
-                            for match in re.finditer(r'<text[^>]*>([\s\S]*?)</text>', cap_resp.text):
+                            for match in re.finditer(r'<(?:text|p)[^>]*>([\s\S]*?)</(?:text|p)>', cap_resp.text):
                                 txt = match.group(1)
                                 txt = txt.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
                                 txt = txt.replace('&quot;', '"').replace('&#39;', "'").replace('\n', ' ').strip()

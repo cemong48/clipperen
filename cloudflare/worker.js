@@ -247,7 +247,8 @@ async function extractCaptionsFromPlayerData(playerData, videoId, corsHeaders, s
 
 function parseXmlCaptions(xml) {
   const segments = [];
-  const regex = /<text[^>]*>([\s\S]*?)<\/text>/g;
+  // Match both <text> tags (format 1) and <p> tags (format 3/timedtext)
+  const regex = /<(?:text|p)[^>]*>([\s\S]*?)<\/(?:text|p)>/g;
   let match;
   while ((match = regex.exec(xml)) !== null) {
     let text = match[1]
