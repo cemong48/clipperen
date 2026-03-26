@@ -323,6 +323,11 @@ def get_channel_uploads(channel_id, max_pages=3, channel_name=None):
         List of video items in the same format as get_latest_videos()
     """
     api_key = _get_api_key_for_context(channel_name)
+    if not api_key:
+        logger.warning(f"No API key for channel '{channel_name}' — skipping uploads scan")
+        return []
+    
+    logger.info(f"Channel uploads scan: {channel_id} (key len={len(api_key)}, channel={channel_name})")
     
     # Step 1: Get the actual uploads playlist ID via channels API (1 quota)
     uploads_playlist_id = None
@@ -334,8 +339,11 @@ def get_channel_uploads(channel_id, max_pages=3, channel_name=None):
             "key": api_key
         }
         ch_resp = requests.get(ch_url, params=ch_params, timeout=10)
+        logger.info(f"  channels.list HTTP {ch_resp.status_code} for {channel_id}")
         if ch_resp.status_code == 200:
-            ch_items = ch_resp.json().get("items", [])
+            ch_data = ch_resp.json()
+            ch_items = ch_data.get("items", [])
+            logger.info(f"  channels.list items: {len(ch_items)}")
             if ch_items:
                 uploads_playlist_id = (
                     ch_items[0]
@@ -346,7 +354,20 @@ def get_channel_uploads(channel_id, max_pages=3, channel_name=None):
                 if uploads_playlist_id:
                     logger.info(f"Uploads playlist for {channel_id}: {uploads_playlist_id}")
         elif ch_resp.status_code == 403:
-            logger.warning(f"Channels API 403 for {channel_id}, trying UC→UU fallback")
+            try:
+                err_body = ch_resp.json()
+                err_reason = err_body.get("error", {}).get("errors", [{}])[0].get("reason", "unknown")
+                err_msg = err_body.get("error", {}).get("message", "")[:100]
+                logger.warning(f"Channels API 403 for {channel_id}: {err_reason} — {err_msg}")
+            except Exception:
+                logger.warning(f"Channels API 403 for {channel_id}")
+        else:
+            # Log unexpected status codes
+            try:
+                err_body = ch_resp.text[:200]
+            except Exception:
+                err_body = "?"
+            logger.warning(f"Channels API HTTP {ch_resp.status_code} for {channel_id}: {err_body}")
     except Exception as e:
         logger.warning(f"Channels API failed for {channel_id}: {e}")
     
@@ -380,13 +401,20 @@ def get_channel_uploads(channel_id, max_pages=3, channel_name=None):
                 try:
                     error_data = resp.json()
                     error_reason = error_data.get("error", {}).get("errors", [{}])[0].get("reason", "unknown")
-                    logger.warning(f"YouTube API 403 for uploads playlist: {error_reason}")
+                    error_msg = error_data.get("error", {}).get("message", "")[:100]
+                    logger.warning(f"YouTube API 403 for uploads playlist: {error_reason} — {error_msg}")
                 except Exception:
                     logger.warning(f"YouTube API 403 for uploads playlist")
                 break
             
             if resp.status_code == 404:
-                logger.warning(f"Uploads playlist not found: {uploads_playlist_id}")
+                try:
+                    error_data = resp.json()
+                    error_reason = error_data.get("error", {}).get("errors", [{}])[0].get("reason", "unknown")
+                    error_msg = error_data.get("error", {}).get("message", "")[:100]
+                    logger.warning(f"Uploads playlist not found: {uploads_playlist_id} — {error_reason}: {error_msg}")
+                except Exception:
+                    logger.warning(f"Uploads playlist not found: {uploads_playlist_id}")
                 break
             
             resp.raise_for_status()
