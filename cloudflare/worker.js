@@ -194,30 +194,52 @@ async function extractCaptionsFromPlayerData(playerData, videoId, corsHeaders, s
 
   if (!target?.baseUrl) return null;
 
-  // Download the caption track
-  const capResp = await fetch(target.baseUrl, {
-    headers: { "User-Agent": "com.google.android.youtube/20.10.38" },
-  });
+  // Try to download the caption track directly
+  try {
+    const capResp = await fetch(target.baseUrl, {
+      headers: { "User-Agent": "com.google.android.youtube/20.10.38" },
+    });
 
-  if (!capResp.ok) return null;
+    if (capResp.ok) {
+      const capXml = await capResp.text();
+      const text = parseXmlCaptions(capXml);
 
-  const capXml = await capResp.text();
-  const text = parseXmlCaptions(capXml);
-
-  if (text && text.length >= 50) {
-    return Response.json(
-      {
-        success: true,
-        text,
-        source: `cf_worker_${source}`,
-        language: target.languageCode,
-        chars: text.length,
-      },
-      { headers: corsHeaders }
-    );
+      if (text && text.length >= 50) {
+        return Response.json(
+          {
+            success: true,
+            text,
+            source: `cf_worker_${source}`,
+            language: target.languageCode,
+            chars: text.length,
+          },
+          { headers: corsHeaders }
+        );
+      }
+    }
+  } catch (e) {
+    // Caption download failed (likely 429 from CF Worker IP) — fall through
   }
 
-  return null;
+  // Caption download failed — return the URLs so Python caller can download them
+  const captionUrls = tracks.map((t) => ({
+    languageCode: t.languageCode,
+    kind: t.kind || "manual",
+    baseUrl: t.baseUrl,
+    name: t.name?.runs?.[0]?.text || t.name?.simpleText || t.languageCode,
+  }));
+
+  return Response.json(
+    {
+      success: true,
+      text: null,
+      caption_urls: captionUrls,
+      source: `cf_worker_${source}_urls`,
+      language: target.languageCode,
+      message: "Caption URLs returned — download from caller side",
+    },
+    { headers: corsHeaders }
+  );
 }
 
 

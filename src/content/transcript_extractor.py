@@ -737,8 +737,59 @@ def extract_transcript_cf_worker(video_id):
                 source = data.get("source", "cf_worker")
                 logger.info(f"CF Worker SUCCESS ({source}) for {video_id} ({len(text)} chars)")
                 return text
-            else:
-                # 200 but no success — log the errors (these are innertube client errors, safe to log)
+            
+            # CF Worker got caption URLs but couldn't download them (timedtext 429)
+            # Download the captions from Python side
+            if data.get("success") and data.get("caption_urls"):
+                caption_urls = data["caption_urls"]
+                logger.info(f"CF Worker returned {len(caption_urls)} caption URLs — downloading from Python...")
+                
+                # Find best English track
+                target_url = None
+                for track in caption_urls:
+                    if track.get("languageCode") == "en" and track.get("kind") != "asr":
+                        target_url = track.get("baseUrl")
+                        break
+                if not target_url:
+                    for track in caption_urls:
+                        if track.get("languageCode") == "en":
+                            target_url = track.get("baseUrl")
+                            break
+                if not target_url and caption_urls:
+                    target_url = caption_urls[0].get("baseUrl")
+                
+                if target_url:
+                    try:
+                        cap_resp = requests.get(
+                            target_url,
+                            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                            timeout=15
+                        )
+                        if cap_resp.status_code == 200:
+                            # Parse XML captions
+                            import re
+                            segments = []
+                            for match in re.finditer(r'<text[^>]*>([\s\S]*?)</text>', cap_resp.text):
+                                txt = match.group(1)
+                                txt = txt.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+                                txt = txt.replace('&quot;', '"').replace('&#39;', "'").replace('\n', ' ').strip()
+                                if txt:
+                                    segments.append(txt)
+                            text = " ".join(segments)
+                            if text and len(text) >= 50:
+                                logger.info(f"CF Worker caption URL download SUCCESS for {video_id} ({len(text)} chars)")
+                                return text
+                            else:
+                                logger.info(f"CF Worker caption URL: parsed but too short ({len(text)} chars)")
+                        else:
+                            logger.info(f"CF Worker caption URL download: HTTP {cap_resp.status_code}")
+                    except Exception as e:
+                        logger.info(f"CF Worker caption URL download failed: {type(e).__name__}")
+                
+                return None
+            
+            # 200 but no success — log errors
+            if not data.get("success"):
                 errors = data.get("errors", [])
                 for err in errors[:5]:
                     logger.info(f"CF Worker inner: {err}")
